@@ -5,6 +5,7 @@ import { ingredientKey } from './ingredients.js';
 import { unitDim, toBase, friendlyVolume, friendlyWeight, formatAmount, unitLabel, formatQty } from './units.js';
 import { guessAisle } from './aisles.js';
 import { getPrefs } from './prefs.js';
+import { available, formatBase } from './pantry.js';
 
 // ---------- Recipes ----------
 
@@ -123,7 +124,8 @@ export function buildFromPlan(week) {
   const items = new Map();
 
   for (const e of week.entries) {
-    if (e.type !== 'recipe') continue;
+    // Cooked meals already came out of the pantry, so they don't need buying again.
+    if (e.type !== 'recipe' || e.made) continue;
     const r = db.get('recipes', e.recipeId);
     if (!r) continue;
     const factor = (e.servings || r.servings || 1) / (r.servings || e.servings || 1);
@@ -153,15 +155,32 @@ export function buildFromPlan(week) {
   }
 
   return [...items.values()].map((it) => {
+    // Subtract what's already in the pantry.
+    const haveParts = [];
+    const take = (dim, needed, preferred) => {
+      const a = available(it.key, dim);
+      if (!a.total || needed <= 0) return needed;
+      haveParts.push(formatBase(dim, a.total, preferred));
+      return Math.max(0, needed - a.total);
+    };
+    it.ml = take('volume', it.ml, mostCommon(it.vol));
+    it.g = take('weight', it.g, mostCommon(it.wt));
+    for (const [u, q] of it.counts) it.counts.set(u, take(`count:${u}`, q, u));
+    const anyInPantry = available(it.key, 'volume').any;
+    const stillNeed = it.ml > 0.5 || it.g > 0.5 || [...it.counts.values()].some((q) => q > 0.01);
+    const unmeasured = !it.ml && !it.g && !it.counts.size; // e.g. "salt to taste"
+
     const parts = [];
     // You can't buy ⅔ of an onion or a can: whole items round up. The leftover goes to the pantry later.
-    for (const [u, q] of it.counts) parts.push(formatAmount(Math.ceil(q - 0.01), u) + (it.sizes.get(u) ? ` (${it.sizes.get(u)})` : ''));
-    if (it.ml) { const f = friendlyVolume(it.ml, mostCommon(it.vol)); parts.push(formatAmount(f.value, f.unit)); }
-    if (it.g) { const f = friendlyWeight(it.g, mostCommon(it.wt)); parts.push(formatAmount(f.value, f.unit)); }
+    for (const [u, q] of it.counts) if (q > 0.01) parts.push(formatAmount(Math.ceil(q - 0.01), u) + (it.sizes.get(u) ? ` (${it.sizes.get(u)})` : ''));
+    if (it.ml > 0.5) { const f = friendlyVolume(it.ml, mostCommon(it.vol)); parts.push(formatAmount(f.value, f.unit)); }
+    if (it.g > 0.5) { const f = friendlyWeight(it.g, mostCommon(it.wt)); parts.push(formatAmount(f.value, f.unit)); }
     return {
       key: it.key,
       name: capitalize(mostCommon(it.names) || it.key),
       amount: parts.join(' + '),
+      have: anyInPantry && (unmeasured || !stillNeed),
+      haveText: haveParts.join(' + ') || (anyInPantry ? 'some' : ''),
       aisle: guessAisle(it.key, prefs.aisleOverrides, mostCommon(it.units)),
       sources: [...it.sources],
     };
@@ -185,8 +204,11 @@ export async function syncShopping(start) {
       amount: old?.edited ? old.amount : g.amount,
       aisle: g.aisle,
       sources: g.sources,
+      have: g.have,
+      haveText: g.haveText,
       checked: old?.checked || false,
       hidden: old?.hidden || false,
+      putAway: old?.putAway || false,
       edited: old?.edited || false,
       fromPlan: true,
     });

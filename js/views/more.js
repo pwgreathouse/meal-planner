@@ -17,8 +17,9 @@ export function moreView(el) {
       <section class="panel" id="account"></section>
 
       <section class="panel">
-        <h2>Pantry</h2>
-        <p class="muted small">Coming in the next phase: track what's on hand, auto-add from shopping trips, subtract when you cook, and toss items.</p>
+        <h2>Always on hand</h2>
+        <p class="muted small">Basics that don't count against a recipe in “Cook from what you have”. One per line.</p>
+        <textarea id="basics" rows="4">${esc(p.basics.join('\n'))}</textarea>
       </section>
 
       <section class="panel">
@@ -105,6 +106,7 @@ export function moreView(el) {
       staples: lines(el.querySelector('#staples').value),
       categories: lines(el.querySelector('#categories').value),
       neverBuy: lines(el.querySelector('#never').value),
+      basics: lines(el.querySelector('#basics').value),
       fetchProxyUrl: el.querySelector('#proxy').value.trim(),
       fetchProxyToken: el.querySelector('#token').value.trim().toUpperCase(),
     });

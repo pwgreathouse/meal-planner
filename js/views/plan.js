@@ -4,6 +4,7 @@ import { esc, today, weekStart, weekDates, addDays, fmtDay, fmtWeek } from '../u
 import { getPrefs, MEALS } from '../prefs.js';
 import { getWeek, addRecipeEntry, addSkip, updateEntry, removeEntry, setCovers, leftoversOf, searchRecipes } from '../model.js';
 import { openSheet, toast, stepperHtml, wireSteppers, stepperValue, setStepper } from '../ui.js';
+import { openDeductSheet } from './pantry.js';
 
 const SKIP_LABELS = ['Eating out', 'Leftovers', 'Not needed', 'Takeout'];
 const mealLabel = (k) => MEALS.find((m) => m.key === k)?.label || k;
@@ -330,12 +331,15 @@ function openEntrySheet(start, entryId) {
     const before = lo.map((l) => `${l.date}|${l.meal}`).sort().join();
     const after = covers.map((c) => `${c}|${coverMeal}`).sort().join();
     if (before !== after) await setCovers(start, e.id, covers, coverMeal);
+    sheet.close();
     if (made && !e.made && r) {
       r.lastMade = e.date;
       await db.put('recipes', r);
+      // Take what was cooked out of the pantry (the user confirms each change).
+      setTimeout(() => openDeductSheet(r, stepperValue(body, 'servings')), 250);
+    } else {
+      toast('Saved');
     }
-    sheet.close();
-    toast('Saved');
   };
   body.querySelector('#rm').onclick = async () => {
     if (lo.length && !confirm('Remove this and its leftover days?')) return;

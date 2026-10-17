@@ -225,6 +225,32 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 
 .moved { background: var(--warn-soft); color: var(--text); padding: calc(var(--safe-t) + 12px) 16px 12px; font-size: .9rem; line-height: 1.4; }
 
+/* ---------- Pantry ---------- */
+.add-btn { min-height: 38px; padding: 0 14px; border-radius: 999px; color: var(--accent); }
+.badge { background: var(--accent); color: var(--accent-ink); border-radius: 999px; font-size: .72rem; padding: 1px 7px; margin-left: 2px; }
+.pantry-item { width: 100%; border: 0; text-align: left; cursor: pointer; padding: 0 14px 0 0; }
+.pantry-item .item-body { padding-left: 14px; }
+.exp { flex: none; font-size: .78rem; color: var(--muted); }
+.exp.warn { color: var(--warn); font-weight: 600; }
+.exp.bad { color: var(--danger); font-weight: 600; }
+.ideas { display: grid; gap: 8px; margin: 4px 0 8px; }
+.ideas h2 { font-size: 1rem; }
+.idea { padding: 10px 14px; }
+.aisle h3 small { font-weight: 400; }
+details.aisle summary { list-style: none; cursor: pointer; }
+details.aisle summary::-webkit-details-marker { display: none; }
+details.aisle summary h3::after { content: " ▾"; }
+.aisle.have .item { opacity: .7; }
+.put-away { display: grid; gap: 10px; margin-top: 10px; }
+.pa-row { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
+.pa-check { display: flex; align-items: center; gap: 8px; }
+.pa-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+.pa-fields input[name=amount] { grid-column: 1 / -1; }
+.pa-fields input, .pa-fields select { padding: 8px 10px; font-size: 16px; }
+.deduct { display: grid; gap: 8px; margin: 12px 0; }
+.deduct-row { display: flex; gap: 10px; align-items: flex-start; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; font-size: .92rem; }
+.deduct-row input { margin-top: 3px; }
+
 /* ---------- Help ---------- */
 .help { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 18px 16px; }
 .help h2 { margin: 20px 0 8px; }

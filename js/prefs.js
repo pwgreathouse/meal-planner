@@ -41,6 +41,9 @@ const DEFAULTS = {
   ],
   staples: ['Milk', 'Eggs', 'Coffee', 'Bread', 'Bananas'],
   neverBuy: ['water', 'ice', 'hot water', 'cold water', 'warm water', 'boiling water'],
+  // Assumed on hand when ranking "cook from what you have".
+  basics: ['salt', 'kosher salt', 'black pepper', 'pepper', 'salt and pepper', 'olive oil', 'vegetable oil', 'oil', 'sugar', 'flour', 'all-purpose flour'],
+  purchaseSizes: {}, // ingredient key -> last amount put away, e.g. "1 qt"
   aisleOverrides: {},
   fetchProxyUrl: '',
   fetchProxyToken: '',

@@ -6,6 +6,7 @@ import { shopView } from './views/shop.js';
 import { addView, reviewView } from './views/add.js';
 import { moreView, notesHelpView, keepHelpView } from './views/more.js';
 import { startSync } from './cloud.js';
+import { pantryView } from './views/pantry.js';
 
 const D = '(\\d{4}-\\d{2}-\\d{2})';
 const ROUTES = [
@@ -15,8 +16,9 @@ const ROUTES = [
   [/^\/recipe\/([\w-]+)$/, detailView, 'recipes'],
   [new RegExp(`^/plan(?:/${D})?$`), planView, 'plan'],
   [new RegExp(`^/shop(?:/${D})?$`), shopView, 'shop'],
-  [/^\/add$/, addView, 'add'],
-  [/^\/inbox\/([\w-]+)$/, reviewView, 'add'],
+  [/^\/add$/, addView, 'recipes'],
+  [/^\/inbox\/([\w-]+)$/, reviewView, 'recipes'],
+  [/^\/pantry$/, pantryView, 'pantry'],
   [/^\/more$/, moreView, 'more'],
   [/^\/help\/notes$/, notesHelpView, 'more'],
   [/^\/help\/keep$/, keepHelpView, 'more'],

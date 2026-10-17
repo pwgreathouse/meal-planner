@@ -2,8 +2,8 @@
 // Every record has an `id` and an `updatedAt`, so cloud sync can be layered on later.
 
 const DB_NAME = 'meal-planner';
-const VERSION = 2;
-export const STORES = ['recipes', 'weeks', 'inbox', 'shopping', 'settings'];
+const VERSION = 3;
+export const STORES = ['recipes', 'weeks', 'inbox', 'shopping', 'settings', 'pantry'];
 
 let dbPromise;
 const cache = Object.fromEntries(STORES.map((s) => [s, new Map()]));

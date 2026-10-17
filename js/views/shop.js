@@ -5,6 +5,7 @@ import { getPrefs, savePrefs, AISLES } from '../prefs.js';
 import { getShopping, syncShopping, addManualItem } from '../model.js';
 import { ingredientKey } from '../ingredients.js';
 import { openSheet, toast, emptyState } from '../ui.js';
+import { addToPantry, defaultsFor, LOCATIONS } from '../pantry.js';
 
 export function shopView(el, startParam) {
   const start = startParam || defaultShopWeek();
@@ -30,10 +31,12 @@ export function shopView(el, startParam) {
       .map((s) => `<button class="chip" data-staple="${esc(s)}">＋ ${esc(s)}</button>`)
       .join('');
 
-    const visible = list.items.filter((i) => !i.hidden);
+    const visible = list.items.filter((i) => !i.hidden && !(i.have && !i.checked));
+    const haveItems = list.items.filter((i) => !i.hidden && i.have && !i.checked);
     const open = visible.filter((i) => !i.checked);
     const done = visible.filter((i) => i.checked);
-    if (!visible.length) {
+    const toPutAway = done.filter((i) => !i.putAway);
+    if (!visible.length && !haveItems.length) {
       el.querySelector('#list').innerHTML = emptyState(
         'Nothing on the list yet',
         'Add recipes to this week’s plan and their ingredients show up here, combined and grouped by aisle.',
@@ -46,14 +49,19 @@ export function shopView(el, startParam) {
       <div class="list-meta"><span>${open.length} to get${done.length ? ` · ${done.length} in cart` : ''}</span>
         <label class="small"><input type="checkbox" id="src" ${showSources ? 'checked' : ''}> show recipes</label></div>
       ${groups.map(([a, items]) => `<section class="aisle"><h3>${esc(a)}</h3>${items.map(itemHtml).join('')}</section>`).join('')}
-      ${done.length ? `<section class="aisle done"><h3>In cart <button class="btn-text small" id="clear">Clear</button></h3>${done.map(itemHtml).join('')}</section>` : ''}`;
+      ${done.length ? `<section class="aisle done"><h3>In cart
+          <span>${toPutAway.length ? `<button class="btn-text small strong" id="put-away">Put away ${toPutAway.length}</button>` : ''}<button class="btn-text small" id="clear">Clear</button></span></h3>
+          ${done.map(itemHtml).join('')}</section>` : ''}
+      ${haveItems.length ? `<details class="aisle have"><summary><h3>Already in pantry (${haveItems.length})</h3></summary>
+          ${haveItems.map(itemHtml).join('')}</details>` : ''}`;
   }
 
   function itemHtml(i) {
     return `<div class="item ${i.checked ? 'checked' : ''}" data-item="${i.id}">
       <button class="check-btn" data-toggle="${i.id}" aria-label="${i.checked ? 'Uncheck' : 'Check'} ${esc(i.name)}"></button>
       <button class="item-body" data-edit="${i.id}">
-        <span class="item-name">${esc(i.name)}</span>${i.amount ? `<span class="item-amt">${esc(i.amount)}</span>` : ''}
+        <span class="item-name">${esc(i.name)}${i.putAway ? ' <small class="muted">· put away</small>' : ''}</span>
+        ${i.have ? `<span class="item-amt">have ${esc(i.haveText)}</span>` : i.amount ? `<span class="item-amt">${esc(i.amount)}${i.haveText ? ` <small>(have ${esc(i.haveText)})</small>` : ''}</span>` : ''}
         ${showSources && i.sources?.length ? `<span class="item-src">${esc(i.sources.join(', '))}</span>` : ''}
       </button></div>`;
   }
@@ -77,6 +85,7 @@ export function shopView(el, startParam) {
       // Plan items stay hidden by keeping them checked; manual items are deleted.
       return mutate((l) => { l.items = l.items.filter((i) => !(i.checked && !i.fromPlan)); l.items.forEach((i) => { if (i.checked) i.hidden = true; }); });
     }
+    if (t.id === 'put-away') return openPutAway(start);
     if (t.id === 'src') {
       showSources = t.checked;
       draw();
@@ -94,7 +103,60 @@ export function shopView(el, startParam) {
 
   syncShopping(start).then(draw);
   draw();
-  return { refresh: (store) => store === 'shopping' && draw() };
+  return {
+    refresh: (store) => {
+      if (store === 'shopping') draw();
+      if (store === 'pantry' || store === 'recipes' || store === 'weeks') syncShopping(start);
+    },
+  };
+}
+
+// Moves checked items into the pantry at the size actually bought (remembered for next time).
+function openPutAway(start) {
+  const prefs = getPrefs();
+  const items = getShopping(start).items.filter((i) => i.checked && !i.putAway && !i.hidden);
+  const sheet = openSheet(`
+    <h2>Put away</h2>
+    <p class="muted small">Adjust to what you actually bought, e.g. “1 qt” of broth even if recipes need 2 cups. Leftovers stay in the pantry.</p>
+    <form id="pa" class="put-away">
+      ${items.map((i) => {
+        const d = defaultsFor(i.name, null);
+        const amount = prefs.purchaseSizes[i.key] || i.amount || '';
+        return `<div class="pa-row" data-id="${i.id}">
+          <label class="pa-check"><input type="checkbox" name="on" checked> <b>${esc(i.name)}</b></label>
+          <div class="pa-fields">
+            <input name="amount" value="${esc(amount)}" placeholder="amount, e.g. 1 qt">
+            <select name="location">${LOCATIONS.map((l) => `<option ${l === d.location ? 'selected' : ''}>${l}</option>`).join('')}</select>
+            <input name="expires" type="date" value="${esc(d.expires)}" aria-label="Use by">
+          </div>
+        </div>`;
+      }).join('')}
+      <button class="btn primary block">Add to pantry</button>
+    </form>`);
+  sheet.el.querySelector('#pa').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const sizes = { ...getPrefs().purchaseSizes };
+    const list = getShopping(start);
+    let n = 0;
+    for (const row of sheet.el.querySelectorAll('.pa-row')) {
+      const it = list.items.find((x) => x.id === row.dataset.id);
+      if (!it) continue;
+      it.putAway = true; // unchecked rows are just marked handled
+      if (!row.querySelector('[name=on]').checked) continue;
+      const amount = row.querySelector('[name=amount]').value.trim();
+      await addToPantry({
+        name: it.name, amount, source: 'shopping',
+        location: row.querySelector('[name=location]').value,
+        expires: row.querySelector('[name=expires]').value,
+      });
+      if (amount) sizes[it.key] = amount;
+      n++;
+    }
+    await savePrefs({ purchaseSizes: sizes });
+    await db.put('shopping', list);
+    sheet.close();
+    toast(`${n} item${n === 1 ? '' : 's'} added to pantry`);
+  });
 }
 
 // Saturday or Sunday: the list you're about to shop for is next week's (Sat) or this week's (Sun).

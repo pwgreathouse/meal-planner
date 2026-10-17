@@ -28,7 +28,7 @@ export function recipeCard(r, { href = `#/recipe/${r.id}`, extra = '' } = {}) {
 export function listView(el) {
   const prefs = getPrefs();
   el.innerHTML = `
-    <header class="topbar"><h1>Recipes</h1><a class="btn-icon" href="#/add" aria-label="Add recipe">＋</a></header>
+    <header class="topbar"><h1>Recipes</h1><a class="btn add-btn" href="#/add">＋ Add${db.all('inbox').length ? ` <span class="badge" title="In Inbox">${db.all('inbox').length}</span>` : ''}</a></header>
     <div class="search-bar"><input type="search" id="q" placeholder="Search title, ingredient, tag…" value="${esc(listState.q)}" autocomplete="off" enterkeyhint="search"></div>
     <div class="chips scroll-x" id="cats"></div>
     <div class="list-meta"><span id="count"></span>
