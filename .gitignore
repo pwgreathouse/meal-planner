@@ -2,3 +2,7 @@
 *.log
 Thumbs.db
 .DS_Store
+node_modules/
+.wrangler/
+worker/.helper-code.txt
+test-pages/

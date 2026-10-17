@@ -1,0 +1,10 @@
+name = "recipe-helper"
+main = "recipe-helper.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+preview_urls = false
+
+[vars]
+ALLOWED_ORIGIN = "https://pwgreathouse.github.io"
+
+# APP_TOKEN is a secret, set with: npx wrangler secret put APP_TOKEN

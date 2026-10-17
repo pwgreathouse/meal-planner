@@ -4,6 +4,7 @@ import { esc } from '../util.js';
 import { getPrefs, savePrefs, MEALS } from '../prefs.js';
 import { toast, stepperHtml, wireSteppers } from '../ui.js';
 
+const DEFAULT_HELPER = 'https://recipe-helper.pwgreathouse.workers.dev';
 const lines = (v) => String(v || '').split('\n').map((s) => s.trim()).filter(Boolean);
 
 export function moreView(el) {
@@ -42,9 +43,10 @@ export function moreView(el) {
 
       <section class="panel">
         <h2>Link import helper</h2>
-        <p class="muted small">Recipe sites block apps from reading them directly, so link imports go through a small free helper you'll set up during deployment.</p>
-        <label>Helper URL<input id="proxy" type="url" value="${esc(p.fetchProxyUrl)}" placeholder="https://recipe-helper.yourname.workers.dev"></label>
-        <label>Access code<input id="token" value="${esc(p.fetchProxyToken)}" autocomplete="off"></label>
+        <p class="muted small">Recipe sites block apps from reading them directly, so link imports go through your own small helper. Type the access code once, then Save settings.</p>
+        <label>Helper URL<input id="proxy" type="url" value="${esc(p.fetchProxyUrl || DEFAULT_HELPER)}" placeholder="${DEFAULT_HELPER}"></label>
+        <label>Access code<input id="token" value="${esc(p.fetchProxyToken)}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX"></label>
+        <div class="action-row"><button class="btn" id="test-helper">Test connection</button></div>
       </section>
 
       <button class="btn primary block" id="save">Save settings</button>
@@ -72,9 +74,20 @@ export function moreView(el) {
       categories: lines(el.querySelector('#categories').value),
       neverBuy: lines(el.querySelector('#never').value),
       fetchProxyUrl: el.querySelector('#proxy').value.trim(),
-      fetchProxyToken: el.querySelector('#token').value.trim(),
+      fetchProxyToken: el.querySelector('#token').value.trim().toUpperCase(),
     });
     toast('Settings saved');
+  };
+
+  el.querySelector('#test-helper').onclick = async () => {
+    const url = el.querySelector('#proxy').value.trim().replace(/\/$/, '');
+    const code = el.querySelector('#token').value.trim().toUpperCase();
+    try {
+      const res = await fetch(`${url}/fetch?url=${encodeURIComponent('https://example.com/')}`, { headers: { 'X-App-Token': code } });
+      toast(res.ok ? 'Connected ✓ — tap Save settings' : res.status === 401 ? 'Access code doesn’t match' : `Helper error ${res.status}`, 3000);
+    } catch {
+      toast('Couldn’t reach the helper — check the URL', 3000);
+    }
   };
 
   el.querySelector('#export').onclick = async () => {

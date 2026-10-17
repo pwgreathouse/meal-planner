@@ -8,7 +8,11 @@ const TRAILING_NOTE_RE = /,?\s*\b(to taste|for (?:serving|garnish|topping|frying
 // "1 (14 oz) can diced tomatoes, drained" ->
 //   { qty: 1, unit: 'can', size: { qty: 14, unit: 'oz' }, name: 'diced tomatoes', note: 'drained' }
 export function parseIngredient(raw) {
-  const line = String(raw || '').replace(BULLET_RE, '').replace(/\s+/g, ' ').trim();
+  const line = String(raw || '')
+    .replace(BULLET_RE, '')
+    .replace(/\s*\(\s*\$\s*[\d.]+\*?\s*\)/g, '') // per-ingredient prices, e.g. "($0.20)"
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!line) return null;
 
   if (/:$/.test(line) && line.length < 60 && !parseQuantity(line)) {
@@ -44,12 +48,18 @@ export function parseIngredient(raw) {
     unit = u.key;
     s = u.rest;
   }
+  let note = '';
+  // A metric equivalent right after the unit: "1 tsp (3g) baking soda".
+  const lead = s.match(/^\(([^)]*)\)\s*/);
+  if (lead) {
+    note = lead[1];
+    s = s.slice(lead[0].length);
+  }
   s = s.replace(/^of\s+/i, '');
 
-  let note = '';
   const tn = s.match(TRAILING_NOTE_RE);
   if (tn) {
-    note = tn[1];
+    note = [note, tn[1]].filter(Boolean).join(', ');
     s = s.slice(0, tn.index).trim();
   }
   const parens = s.match(/\s*\(([^)]*)\)\s*$/);

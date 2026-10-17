@@ -15,7 +15,8 @@ export default {
     };
     if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
 
-    if (env.APP_TOKEN && request.headers.get('X-App-Token') !== env.APP_TOKEN) {
+    const given = (request.headers.get('X-App-Token') || '').trim().toUpperCase();
+    if (env.APP_TOKEN && given !== env.APP_TOKEN.trim().toUpperCase()) {
       return new Response('Unauthorized', { status: 401, headers: cors });
     }
 
