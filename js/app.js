@@ -68,6 +68,11 @@ const NEW_HOME = 'https://meal-planner-pwg.web.app/';
     startSync();
   }
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    // When an update takes over, reload once so the whole app is the new version.
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (hadController && !document.querySelector('.sheet-wrap')) location.reload();
+    });
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 })();
