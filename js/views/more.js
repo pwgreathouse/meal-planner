@@ -4,6 +4,7 @@ import { esc } from '../util.js';
 import { getPrefs, savePrefs, MEALS } from '../prefs.js';
 import { toast, stepperHtml, wireSteppers } from '../ui.js';
 import { onCloudStatus, startSync, signIn, signOut } from '../cloud.js';
+import { AI_MODELS, aiReady, aiNutrition, ingredientsSignature } from '../ai.js';
 
 const DEFAULT_HELPER = 'https://recipe-helper.pwgreathouse.workers.dev';
 const lines = (v) => String(v || '').split('\n').map((s) => s.trim()).filter(Boolean);
@@ -15,6 +16,18 @@ export function moreView(el) {
     <header class="topbar"><h1>More</h1></header>
     <div class="settings">
       <section class="panel" id="account"></section>
+
+      <section class="panel">
+        <h2>AI ✨</h2>
+        <p class="muted small">Reads photos and messy recipes, suggests meals, estimates nutrition. Paid from your Claude credit.</p>
+        <label>Model<select id="ai-model">${AI_MODELS.map((m) => `<option value="${m.id}" ${m.id === p.aiModel ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}</select></label>
+        <p class="muted small" id="ai-note">${esc(AI_MODELS.find((m) => m.id === p.aiModel)?.note || '')}</p>
+        <div class="grid-2">
+          <label>Daily calories goal<input id="goal-cal" type="number" inputmode="numeric" min="0" value="${p.goals.calories || ''}" placeholder="optional"></label>
+          <label>Daily protein goal (g)<input id="goal-pro" type="number" inputmode="numeric" min="0" value="${p.goals.protein || ''}" placeholder="optional"></label>
+        </div>
+        ${aiReady() ? `<div class="action-row"><button class="btn" id="nutr-all">Estimate nutrition for all recipes</button></div>` : ''}
+      </section>
 
       <section class="panel">
         <h2>Always on hand</h2>
@@ -108,11 +121,40 @@ export function moreView(el) {
       categories: lines(el.querySelector('#categories').value),
       neverBuy: lines(el.querySelector('#never').value),
       basics: lines(el.querySelector('#basics').value),
+      aiModel: el.querySelector('#ai-model').value,
+      goals: { calories: +el.querySelector('#goal-cal').value || 0, protein: +el.querySelector('#goal-pro').value || 0 },
       fetchProxyUrl: el.querySelector('#proxy').value.trim(),
       fetchProxyToken: el.querySelector('#token').value.trim().toUpperCase(),
     });
     toast('Settings saved');
   };
+
+  el.querySelector('#ai-model').onchange = (e) => {
+    el.querySelector('#ai-note').textContent = AI_MODELS.find((m) => m.id === e.target.value)?.note || '';
+  };
+
+  el.querySelector('#nutr-all')?.addEventListener('click', async (e) => {
+    const todo = db.all('recipes').filter((r) => r.ingredients?.length && (!r.nutrition || r.nutrition.sig !== ingredientsSignature(r)));
+    if (!todo.length) return toast('Every recipe already has an up-to-date estimate');
+    if (!confirm(`Estimate nutrition for ${todo.length} recipe${todo.length === 1 ? '' : 's'}? Roughly 1¢ each.`)) return;
+    const btn = e.target;
+    btn.disabled = true;
+    let ok = 0;
+    for (const r of todo) {
+      btn.textContent = `Estimating ${ok + 1} of ${todo.length}…`;
+      try {
+        r.nutrition = await aiNutrition(r);
+        await db.put('recipes', r);
+        ok++;
+      } catch (err) {
+        toast(err.message, 4000);
+        break;
+      }
+    }
+    btn.disabled = false;
+    btn.textContent = 'Estimate nutrition for all recipes';
+    toast(`Estimated ${ok} recipe${ok === 1 ? '' : 's'}`);
+  });
 
   el.querySelector('#test-helper').onclick = async () => {
     const url = el.querySelector('#proxy').value.trim().replace(/\/$/, '');

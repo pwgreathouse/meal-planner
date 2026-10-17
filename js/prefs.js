@@ -45,6 +45,8 @@ const DEFAULTS = {
   basics: ['salt', 'kosher salt', 'black pepper', 'pepper', 'salt and pepper', 'olive oil', 'vegetable oil', 'oil', 'sugar', 'flour', 'all-purpose flour'],
   purchaseSizes: {}, // ingredient key -> last amount put away, e.g. "1 qt"
   aisleOverrides: {},
+  aiModel: 'claude-opus-5-5',
+  goals: { calories: 0, protein: 0 }, // daily targets; 0 = not set
   fetchProxyUrl: '',
   fetchProxyToken: '',
 };
@@ -55,6 +57,7 @@ export function getPrefs() {
     ...structuredClone(DEFAULTS),
     ...saved,
     servings: { ...DEFAULTS.servings, ...(saved.servings || {}) },
+    goals: { ...DEFAULTS.goals, ...(saved.goals || {}) },
   };
 }
 

@@ -6,6 +6,7 @@ import { newRecipe, searchRecipes, allTags } from '../model.js';
 import { parseIngredients, formatIngredient, ingredientText } from '../ingredients.js';
 import { toast, stepperHtml, wireSteppers, emptyState } from '../ui.js';
 import { openAddToPlan } from './plan.js';
+import { aiReady, aiNutrition, ingredientsSignature } from '../ai.js';
 
 const listState = { q: '', cat: 'All', sort: 'az' };
 
@@ -123,7 +124,47 @@ export function detailView(el, id) {
       </section>
       ${r.steps?.length ? `<section><h2>Steps</h2><ol class="steps">${r.steps.map((s) => (/:$/.test(s) ? `<li class="step-head">${esc(s)}</li>` : `<li>${esc(s)}</li>`)).join('')}</ol></section>` : ''}
       ${r.notes ? `<section><h2>Notes</h2><p class="notes">${esc(r.notes)}</p></section>` : ''}
+      <section id="nutrition"></section>
     </article>`;
+
+  function drawNutrition() {
+    const n = r.nutrition;
+    const box = el.querySelector('#nutrition');
+    if (!n) {
+      box.innerHTML = aiReady() && r.ingredients?.length
+        ? `<h2>Nutrition</h2><button class="btn" id="est">✨ Estimate per serving</button> <small class="muted">about 1¢</small>`
+        : '';
+      return;
+    }
+    const s = n.perServing;
+    const stale = n.sig !== ingredientsSignature(r);
+    box.innerHTML = `
+      <div class="section-head"><h2>Nutrition <small class="muted">per serving</small></h2>
+        ${aiReady() ? `<button class="btn-text small" id="est">${stale ? 'Update' : 'Re-estimate'}</button>` : ''}</div>
+      ${stale ? '<p class="warn small">The recipe changed since this estimate.</p>' : ''}
+      <div class="macros">
+        <div><b>${Math.round(s.calories)}</b><span>calories</span></div>
+        <div><b>${Math.round(s.protein_g)}g</b><span>protein</span></div>
+        <div><b>${Math.round(s.carbs_g)}g</b><span>carbs</span></div>
+        <div><b>${Math.round(s.fat_g)}g</b><span>fat</span></div>
+      </div>
+      <p class="muted small">Fiber ${Math.round(s.fiber_g)}g · Sugar ${Math.round(s.sugar_g)}g · Sodium ${Math.round(s.sodium_mg)}mg · AI estimate, ${esc(n.confidence)} confidence. ${esc(n.notes || '')}</p>`;
+  }
+  drawNutrition();
+  el.querySelector('#nutrition').addEventListener('click', async (e) => {
+    if (e.target.id !== 'est') return;
+    e.target.disabled = true;
+    e.target.textContent = 'Estimating…';
+    try {
+      r.nutrition = await aiNutrition(r);
+      await db.put('recipes', r);
+      drawNutrition();
+    } catch (err) {
+      toast(err.message, 4000);
+      e.target.disabled = false;
+      e.target.textContent = 'Try again';
+    }
+  });
 
   function drawIngs() {
     const factor = servings / (r.servings || 1);

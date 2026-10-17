@@ -7,6 +7,9 @@ import {
 } from '../pantry.js';
 import { formatAmount, formatQty, unitLabel } from '../units.js';
 import { ingredientKey } from '../ingredients.js';
+import { aiReady, aiSuggest } from '../ai.js';
+import { getPrefs } from '../prefs.js';
+import { importUrl } from './add.js';
 
 const state = { q: '' };
 
@@ -48,10 +51,12 @@ export function pantryView(el) {
     const ideas = q ? [] : pantryMatches().slice(0, 5);
     const byName = (a, b) => a.name.localeCompare(b.name);
     body.innerHTML = `
-      ${ideas.length ? `<section class="ideas"><h2>Cook from what you have</h2>
+      ${!q ? `<section class="ideas"><div class="section-head ideas-head"><h2>Cook from what you have</h2>
+          ${aiReady() ? '<button class="btn-text strong" id="ai-ideas">✨ More ideas</button>' : ''}</div>
         ${ideas.map((m) => `<a class="card idea" href="#/recipe/${m.r.id}">
           <div class="card-title">${esc(m.r.title)}</div>
-          <div class="card-sub">have ${m.have} of ${m.total}${m.usesSoon ? ` · <b>uses ${m.usesSoon} expiring soon</b>` : ''}${m.missing.length && m.missing.length <= 3 ? ` · need ${esc(m.missing.join(', '))}` : ''}</div></a>`).join('')}
+          <div class="card-sub">have ${m.have} of ${m.total}${m.usesSoon ? ` · <b>uses ${m.usesSoon} expiring soon</b>` : ''}${m.missing.length && m.missing.length <= 3 ? ` · need ${esc(m.missing.join(', '))}` : ''}</div></a>`).join('')
+          || '<p class="muted small">None of your saved recipes match yet.</p>'}
       </section>` : ''}
       ${soon.length ? `<section class="aisle"><h3>Use soon</h3>${soon.map(rowHtml).join('')}</section>` : ''}
       ${LOCATIONS.map((loc) => {
@@ -72,6 +77,7 @@ export function pantryView(el) {
     draw();
   });
   el.addEventListener('click', (e) => {
+    if (e.target.closest('#ai-ideas')) return openAiIdeas();
     if (e.target.closest('#add, #add2')) return openItemSheet(null);
     const row = e.target.closest('[data-item]');
     if (row) openItemSheet(row.dataset.item);
@@ -154,6 +160,72 @@ function openItemSheet(id) {
       toast(b.dataset.out === 'tossed' ? `Tossed ${p.name}` : `${p.name} used up`);
     })
   );
+}
+
+// AI meal ideas from the pantry: saved recipes first, plus real recipes found on the web.
+function openAiIdeas() {
+  const opts = { meal: '', web: true };
+  const sheet = openSheet(`
+    <h2>✨ Ideas from your pantry</h2>
+    <p class="muted small">Looks at what you have (and what's expiring) and suggests meals from your recipes and the web.</p>
+    <div class="field-label">For</div>
+    <div class="chips wrap" id="meal">${['Any', 'Breakfast', 'Lunch', 'Dinner', 'Snack'].map((m, i) => `<button class="chip ${i === 0 ? 'on' : ''}" data-meal="${i ? m.toLowerCase() : ''}">${m}</button>`).join('')}</div>
+    <label class="check"><input type="checkbox" id="web" checked> Include new recipes from the web</label>
+    <input id="notes" class="field-row" placeholder="Anything else? e.g. quick, no spicy, use the chicken" autocomplete="off">
+    <button class="btn primary block" id="go">Find ideas</button>
+    <p class="muted small center" id="cost">About 15–20¢ with web search, 2–3¢ without.</p>
+    <div id="results" class="ideas"></div>`);
+  const b = sheet.el;
+  b.querySelector('#meal').addEventListener('click', (e) => {
+    const c = e.target.closest('[data-meal]');
+    if (!c) return;
+    opts.meal = c.dataset.meal;
+    b.querySelectorAll('#meal .chip').forEach((x) => x.classList.toggle('on', x === c));
+  });
+  b.querySelector('#go').addEventListener('click', async (e) => {
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = 'Thinking… (up to a minute)';
+    const results = b.querySelector('#results');
+    results.innerHTML = '';
+    try {
+      const prefs = getPrefs();
+      const ideas = await aiSuggest({
+        pantry: pantryItems().map((p) => ({ name: p.name, amount: p.qty == null ? '' : formatItemAmount(p), expires: p.expires })),
+        recipes: db.all('recipes').map((r) => ({ id: r.id, title: r.title, ingredients: (r.ingredients || []).filter((i) => !i.header).map((i) => i.name) })),
+        basics: prefs.basics,
+        meal: opts.meal,
+        notes: b.querySelector('#notes').value.trim(),
+        web: b.querySelector('#web').checked,
+      });
+      results.innerHTML = ideas.length
+        ? ideas.map((i, n) => {
+            const saved = i.source === 'saved' && db.get('recipes', i.recipe_id);
+            return `<div class="card idea">
+              <div class="card-title">${esc(saved ? saved.title : i.title)} <small class="muted">${saved ? 'your recipe' : esc(new URL(i.url).hostname.replace(/^www\./, ''))}</small></div>
+              <div class="card-sub">${esc(i.why)}</div>
+              ${i.uses.length ? `<div class="card-sub">Uses: ${esc(i.uses.join(', '))}</div>` : ''}
+              ${i.missing.length ? `<div class="card-sub">Need: ${esc(i.missing.join(', '))}</div>` : ''}
+              <div class="action-row">${saved
+                ? `<a class="btn" href="#/recipe/${saved.id}">Open recipe</a>`
+                : `<button class="btn primary" data-import="${n}">Import</button><a class="btn" href="${esc(i.url)}" target="_blank" rel="noopener">View ↗</a>`}</div>
+            </div>`;
+          }).join('')
+        : '<p class="muted">No ideas came back. Try again, or loosen the notes.</p>';
+      results.onclick = async (ev) => {
+        const imp = ev.target.closest('[data-import]');
+        if (!imp) return;
+        imp.disabled = true;
+        imp.textContent = 'Importing…';
+        const id = await importUrl(ideas[+imp.dataset.import].url);
+        location.hash = `#/inbox/${id}`;
+      };
+    } catch (err) {
+      results.innerHTML = `<p class="warn">${esc(err.message)}</p>`;
+    }
+    btn.disabled = false;
+    btn.textContent = 'Find ideas again';
+  });
 }
 
 // After a meal is marked made: show what comes out of the pantry and let the user untick anything.

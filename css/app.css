@@ -255,6 +255,14 @@ details.aisle summary h3::after { content: " ▾"; }
 .quick h1 { font-size: 1.5rem; margin-bottom: 10px; }
 .quick .action-row { justify-content: center; }
 
+.macros { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 4px 0 8px; }
+.macros div { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 4px; text-align: center; display: grid; }
+.macros b { font-size: 1.15rem; }
+.macros span { font-size: .75rem; color: var(--muted); }
+.day-nutr { font-size: .78rem; color: var(--accent); margin: -2px 0 6px; }
+.ideas-head { margin: 0; }
+.file-btn.busy { opacity: .7; pointer-events: none; }
+
 /* ---------- Help ---------- */
 .help { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 18px 16px; }
 .help h2 { margin: 20px 0 8px; }

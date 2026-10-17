@@ -8,6 +8,7 @@ import { toast } from '../ui.js';
 import { ingredientText } from '../ingredients.js';
 import { getLog, noteKey, noteHash, recordImports, logEntryFor } from '../importlog.js';
 import { getCloudStatus, waitForCloud } from '../cloud.js';
+import { aiReady, aiParseText, aiParseImages, imageToJpeg } from '../ai.js';
 import { renderRecipeForm } from './recipes.js';
 
 // ---------- Fetching links ----------
@@ -58,6 +59,14 @@ async function tryFetch(item) {
   return item;
 }
 
+// Adds a recipe link to the Inbox and fetches it. Returns the inbox item id.
+export async function importUrl(url) {
+  const item = makeItem({ url, text: url, source: 'link' });
+  await db.put('inbox', item);
+  await tryFetch(item);
+  return item.id;
+}
+
 async function readClipboard() {
   try {
     return await navigator.clipboard.readText();
@@ -66,6 +75,11 @@ async function readClipboard() {
     return '';
   }
 }
+
+// An import worth handing to AI: text that the rule-based parser couldn't split into ingredients and steps.
+const needsAiFix = (i) =>
+  i.status === 'ready' && i.rawText && !i.draft.aiParsed && i.kind !== 'changed' &&
+  (!i.draft.ingredients.filter((x) => !x.header).length || !i.draft.steps.length);
 
 // ---------- Add screen ----------
 
@@ -82,6 +96,16 @@ function quickSave(el, input) {
     if (item.status === 'needs-fetch') {
       msg.textContent = 'Reading the recipe page…';
       await tryFetch(item);
+    }
+    // Screenshot text is often jumbled; let AI tidy it when the quick parse didn't work.
+    if (aiReady() && needsAiFix(item)) {
+      msg.textContent = 'Tidying it up…';
+      try {
+        item.draft = await aiParseText(item.rawText, { sourceUrl: item.draft.sourceUrl });
+        await db.put('inbox', item);
+      } catch {
+        /* keep the plain parse */
+      }
     }
     const title = item.draft.title || item.url || 'Recipe';
     const signedIn = !!getCloudStatus().user;
@@ -101,6 +125,13 @@ export function addView(el, params = {}) {
     <header class="topbar"><h1>Add recipes</h1></header>
     <section class="inbox" id="inbox"><div class="section-head"><h2>Inbox <small class="muted" id="inbox-count"></small></h2><span id="inbox-actions"></span></div><div id="inbox-list"></div></section>
     <div class="add-grid">
+      <section class="panel">
+        <h2>Photo or screenshot ✨</h2>
+        <p class="muted small">Cookbook pages, recipe cards (even handwritten), screenshots. Pick several photos if one recipe spans pages.</p>
+        ${aiReady()
+          ? `<label class="btn primary file-btn">Choose photos<input type="file" id="photos" accept="image/*" multiple hidden></label>`
+          : '<p class="warn small">Needs the helper set up under More.</p>'}
+      </section>
       <section class="panel">
         <h2>Paste a recipe</h2>
         <p class="muted small">Text from a note, email, or web page. A link on its own works too.</p>
@@ -125,6 +156,26 @@ export function addView(el, params = {}) {
 
   const paste = el.querySelector('#paste');
   const bulk = el.querySelector('#bulk');
+
+  el.querySelector('#photos')?.addEventListener('change', async (e) => {
+    const files = [...e.target.files].slice(0, 4);
+    e.target.value = '';
+    if (!files.length) return;
+    const label = e.target.closest('label');
+    label.classList.add('busy');
+    label.firstChild.textContent = 'Reading…';
+    try {
+      const images = await Promise.all(files.map((f) => imageToJpeg(f)));
+      const draft = await aiParseImages(images);
+      const item = { id: uid(), createdAt: Date.now(), source: 'photo', rawText: '', url: '', draft, status: 'ready' };
+      await db.put('inbox', item);
+      location.hash = `#/inbox/${item.id}`;
+    } catch (err) {
+      toast(err.message, 4000);
+      label.classList.remove('busy');
+      label.firstChild.textContent = 'Choose photos';
+    }
+  });
 
   el.querySelector('#clip').onclick = async () => { paste.value = await readClipboard(); };
   el.querySelector('#bulk-clip').onclick = async () => { bulk.value = await readClipboard(); };
@@ -178,8 +229,9 @@ export function addView(el, params = {}) {
     const ready = items.filter((i) => i.status === 'ready' && i.kind !== 'changed');
     el.querySelector('#inbox').hidden = !items.length;
     el.querySelector('#inbox-count').textContent = items.length ? `${items.length} to review` : '';
+    const needsAi = aiReady() ? items.filter(needsAiFix) : [];
     el.querySelector('#inbox-actions').innerHTML = items.length
-      ? `${ready.length > 1 ? `<button class="btn-text small" id="save-all">Save ${ready.length} as-is</button>` : ''}<button class="btn-text small danger" id="clear-all">Clear</button>`
+      ? `${needsAi.length ? `<button class="btn-text small strong" id="ai-all">✨ Fix ${needsAi.length} with AI</button>` : ''}${ready.length > 1 ? `<button class="btn-text small" id="save-all">Save ${ready.length} as-is</button>` : ''}<button class="btn-text small danger" id="clear-all">Clear</button>`
       : '';
     el.querySelector('#inbox-list').innerHTML = items.length
       ? items.map((i) => {
@@ -197,6 +249,24 @@ export function addView(el, params = {}) {
   }
 
   el.addEventListener('click', async (e) => {
+    if (e.target.id === 'ai-all') {
+      const todo = db.all('inbox').filter(needsAiFix);
+      if (!confirm(`Let AI tidy ${todo.length} imports that didn't come out cleanly? Roughly 1¢ each.`)) return;
+      e.target.disabled = true;
+      let done = 0, failed = 0;
+      for (const it of todo) {
+        e.target.textContent = `Fixing ${done + failed + 1} of ${todo.length}…`;
+        try {
+          it.draft = await aiParseText(it.rawText, { sourceUrl: it.draft.sourceUrl });
+          await db.put('inbox', it);
+          done++;
+        } catch {
+          failed++;
+        }
+      }
+      toast(`Fixed ${done}${failed ? ` · ${failed} couldn't be read` : ''}`, 3500);
+      return;
+    }
     if (e.target.id === 'clear-all') {
       if (!confirm('Discard everything in the Inbox? Discarded notes won’t come back on the next import unless they change.')) return;
       const all = db.all('inbox');
@@ -273,7 +343,13 @@ export function reviewView(el, id) {
       }
     : newRecipe({ ...d, servings: d.servings || 4, category: d.category || 'Other' });
 
+  const weak = !d.ingredients.filter((i) => !i.header).length || !d.steps.length;
+  const canAi = aiReady() && item.rawText && !target && !d.aiParsed && item.status === 'ready';
   const banner = `
+    ${canAi ? `<div class="banner ${weak ? 'warn' : ''}">
+        <p>${weak ? 'This one didn’t come out cleanly.' : 'Something look off?'} Let AI tidy it into a proper recipe (about 1¢).</p>
+        <div class="action-row"><button class="btn primary" id="ai-clean">✨ Clean up with AI</button></div></div>` : ''}
+    ${d.aiParsed ? '<div class="banner">✨ Read by AI. Give it a quick check before saving.</div>' : ''}
     ${target ? changedBanner(target, recipe) : ''}
     ${dup ? `<div class="banner warn">Looks like a duplicate of <a href="#/recipe/${dup.id}">${esc(dup.title)}</a>.</div>` : ''}
     ${item.status === 'needs-fetch' ? `<div class="banner">
@@ -303,6 +379,20 @@ export function reviewView(el, id) {
       if (target) toast('Kept your version');
       location.hash = next ? `#/inbox/${next.id}` : '#/add';
     },
+  });
+
+  el.querySelector('#ai-clean')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = 'Reading…';
+    try {
+      item.draft = await aiParseText(item.rawText, { sourceUrl: d.sourceUrl });
+      await db.put('inbox', item);
+      reviewView(el, id);
+    } catch (err) {
+      toast(err.message, 4000);
+      e.target.disabled = false;
+      e.target.textContent = '✨ Clean up with AI';
+    }
   });
 
   el.querySelector('#retry')?.addEventListener('click', async (e) => {

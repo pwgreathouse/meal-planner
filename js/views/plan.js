@@ -34,10 +34,31 @@ export function planView(el, startParam) {
       <div class="days">${dates.map((d) => dayHtml(week, d)).join('')}</div>`;
   }
 
+  // Your day's nutrition: one serving of each planned meal, using the recipes' per-serving estimates.
+  function dayNutrition(week, date) {
+    const goals = getPrefs().goals;
+    const meals = week.entries.filter((e) => e.date === date && e.type !== 'skip');
+    if (!meals.length) return '';
+    const t = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
+    let known = 0;
+    for (const e of meals) {
+      const src = e.type === 'leftover' ? week.entries.find((x) => x.id === e.sourceId) : e;
+      const n = src && db.get('recipes', src.recipeId)?.nutrition?.perServing;
+      if (!n) continue;
+      known++;
+      for (const k in t) t[k] += n[k] || 0;
+    }
+    if (!known) return '';
+    const cal = `${Math.round(t.calories).toLocaleString()}${goals.calories ? ` / ${goals.calories.toLocaleString()}` : ''} cal`;
+    const pro = `${Math.round(t.protein_g)}${goals.protein ? `/${goals.protein}` : ''}g protein`;
+    return `<div class="day-nutr">≈ ${cal} · ${pro} · ${Math.round(t.carbs_g)}g carbs · ${Math.round(t.fat_g)}g fat${known < meals.length ? ` <span class="muted">(${known} of ${meals.length} meals)</span>` : ''}</div>`;
+  }
+
   function dayHtml(week, date) {
     const isToday = date === today();
     return `<section class="day ${isToday ? 'today' : ''}">
       <h3>${esc(fmtDay(date, { weekday: 'long', month: 'short', day: 'numeric' }))}${isToday ? ' <span class="pill">Today</span>' : ''}</h3>
+      ${dayNutrition(week, date)}
       ${MEALS.map((m) => {
         const entries = week.entries.filter((e) => e.date === date && e.meal === m.key);
         return `<div class="slot">
