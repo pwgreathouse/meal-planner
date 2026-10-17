@@ -63,6 +63,7 @@ export function moreView(el) {
 
       <section class="panel">
         <h2>Help</h2>
+        <a class="link-row" href="#/help/shortcuts">Share to Meals from any app or screenshot ›</a>
         <a class="link-row" href="#/help/notes">Import from Apple Notes ›</a>
         <a class="link-row" href="#/help/keep">Import from Google Keep ›</a>
       </section>
@@ -178,6 +179,50 @@ export function notesHelpView(el) {
         <li><b>Run it again any time.</b> Only new notes come in. Notes you've edited in Apple Notes show up as “Changed in Notes” with a list of what changed, and you choose to update the recipe or keep yours. Nothing is overwritten without your OK, and notes you discarded stay away unless they change.</li>
       </ul>
     </article>`;
+}
+
+export function shortcutsHelpView(el) {
+  const base = `${location.origin}${location.pathname}#/add?auto=1&in=`;
+  el.innerHTML = `
+    <header class="topbar"><a class="back" href="#/more">‹ More</a><h1 class="topbar-title">Share to Meals</h1></header>
+    <article class="help">
+      <p>Two Shortcuts put Meals in your iPhone's <b>Share</b> menu. Each takes about 2 minutes to build, once.</p>
+
+      <h2>First, one time: sign in from Safari</h2>
+      <p>Shortcuts open Meals in <b>Safari</b> (iPhone doesn't let them open home-screen apps), and Safari keeps its own copy separate from your home-screen app.
+      So open <b>${esc(location.origin)}</b> in Safari once, tap <b>More → Sign in with Google</b>, and from then on everything you share lands in the Inbox of your home-screen app too.</p>
+
+      <h2>1. “Save to Meals” (links and text)</h2>
+      <ol>
+        <li>Open <b>Shortcuts</b>, tap <b>＋</b>, and name it <i>Save to Meals</i>.</li>
+        <li>Tap the <b>ⓘ</b> (or the name at the top → Details) and turn on <b>Show in Share Sheet</b>.</li>
+        <li>Tap the <b>Shortcut Input</b> box that appears and set it to receive <b>URLs</b>, <b>Safari web pages</b>, <b>Articles</b> and <b>Text</b>. If there's no input: <b>Get Clipboard</b>.</li>
+        <li>Add the action <b>URL Encode</b>. It should say <i>Encode Shortcut Input</i>.</li>
+        <li>Add the action <b>Text</b> and type exactly:<br><code id="base1">${esc(base)}</code><br>then, right after it with no space, insert the <b>URL Encoded Text</b> variable.</li>
+        <li>Add the action <b>Open URLs</b> (it uses the Text).</li>
+      </ol>
+      <p class="muted small">Try it: in Safari on any recipe page tap Share → Save to Meals. You'll see “Saved to your Inbox ✓”. It also works from Instagram, Mail, Notes and anywhere else that shares links or text.</p>
+
+      <h2>2. “Recipe from Screenshot”</h2>
+      <ol>
+        <li>New shortcut named <i>Recipe from Screenshot</i>, with <b>Show in Share Sheet</b> on, receiving <b>Images</b> only.</li>
+        <li>Add <b>Extract Text from Image</b> (Image: Shortcut Input). Your iPhone reads the text itself, which is free and private.</li>
+        <li>Add <b>URL Encode</b> (Text: Text from Image).</li>
+        <li>Add <b>Text</b> with the same address as above, then the <b>URL Encoded Text</b> variable.</li>
+        <li>Add <b>Open URLs</b>.</li>
+      </ol>
+      <p class="muted small">Use it from Photos: open a recipe screenshot → Share → Recipe from Screenshot. Text-based screenshots work well; photos of cookbook pages and handwriting usually need some tidying in the review screen. The AI step will do better with those later.</p>
+
+      <button class="btn block" id="copy-base">Copy the address</button>
+    </article>`;
+  el.querySelector('#copy-base').onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(base);
+      toast('Copied, paste it into the Text action');
+    } catch {
+      toast('Press and hold the address to copy it');
+    }
+  };
 }
 
 export function keepHelpView(el) {

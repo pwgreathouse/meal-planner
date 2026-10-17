@@ -7,6 +7,7 @@ import { parseRecipeText, parseRecipeHtml, splitBulk, isJustUrl, findDuplicate, 
 import { toast } from '../ui.js';
 import { ingredientText } from '../ingredients.js';
 import { getLog, noteKey, noteHash, recordImports, logEntryFor } from '../importlog.js';
+import { getCloudStatus, waitForCloud } from '../cloud.js';
 import { renderRecipeForm } from './recipes.js';
 
 // ---------- Fetching links ----------
@@ -68,7 +69,34 @@ async function readClipboard() {
 
 // ---------- Add screen ----------
 
+// Opened by the iPhone Shortcuts: #/add?auto=1&in=<url or text>. Saves straight to the Inbox and confirms.
+function quickSave(el, input) {
+  el.innerHTML = `<div class="quick"><h1>Saving to Meals…</h1><p class="muted" id="qs-msg"></p><div id="qs-actions"></div></div>`;
+  const msg = el.querySelector('#qs-msg');
+  (async () => {
+    // Let sign-in and settings (like the link helper code) arrive first, so the save syncs right away.
+    msg.textContent = 'Connecting…';
+    await waitForCloud();
+    const item = makeItem({ text: input, source: 'share' });
+    await db.put('inbox', item);
+    if (item.status === 'needs-fetch') {
+      msg.textContent = 'Reading the recipe page…';
+      await tryFetch(item);
+    }
+    const title = item.draft.title || item.url || 'Recipe';
+    const signedIn = !!getCloudStatus().user;
+    if (signedIn) await waitForCloud(4000); // give the upload a moment
+    el.querySelector('.quick h1').textContent = 'Saved to your Inbox ✓';
+    msg.innerHTML = `<b>${esc(title)}</b>${item.status === 'needs-fetch' ? '<br><span class="warn small">The page couldn’t be read yet. You can retry or fill it in from the Inbox.</span>' : ''}
+      ${signedIn ? '' : `<br><br><span class="warn">You're not signed in here, so this stays in Safari and won't reach your home-screen app. Sign in once under More (it only takes a moment) and future saves will sync.</span>`}`;
+    el.querySelector('#qs-actions').innerHTML = `<div class="action-row"><a class="btn primary" href="#/inbox/${item.id}">Review now</a>${signedIn ? '' : '<a class="btn" href="#/more">Sign in</a>'}</div>
+      <p class="muted small">Or just switch back to what you were doing; it'll be waiting in the Inbox.</p>`;
+  })();
+}
+
 export function addView(el, params = {}) {
+  const shared = params.in || params.url || params.text;
+  if (params.auto && shared) return quickSave(el, shared);
   el.innerHTML = `
     <header class="topbar"><h1>Add recipes</h1></header>
     <section class="inbox" id="inbox"><div class="section-head"><h2>Inbox <small class="muted" id="inbox-count"></small></h2><span id="inbox-actions"></span></div><div id="inbox-list"></div></section>
@@ -89,8 +117,9 @@ export function addView(el, params = {}) {
         <div><h2>Type it in</h2><p class="muted small">Start from a blank recipe.</p></div>
         <a class="btn" href="#/recipe/new">New recipe</a>
       </section>
-      <section class="panel row-panel disabled">
-        <div><h2>Screenshot or photo</h2><p class="muted small">Coming with the AI step. For now: open the screenshot in Photos, press and hold the text, Copy, then paste above.</p></div>
+      <section class="panel row-panel">
+        <div><h2>From any app, or a screenshot</h2><p class="muted small">Two iPhone Shortcuts add “Save to Meals” and “Recipe from Screenshot” to the Share button.</p></div>
+        <a class="btn" href="#/help/shortcuts">Set up</a>
       </section>
     </div>`;
 

@@ -24,6 +24,24 @@ export function startSync() {
   return loading;
 }
 
+export const getCloudStatus = () => status;
+
+// Resolves once sync has settled (signed in and synced, signed out, or failed), or after `ms`.
+export function waitForCloud(ms = 6000) {
+  startSync();
+  return new Promise((resolve) => {
+    const settled = (s) => ['synced', 'signed-out', 'error', 'unavailable'].includes(s.state);
+    let off = () => {};
+    const timer = setTimeout(() => { off(); resolve(status); }, ms);
+    off = onCloudStatus((s) => {
+      if (!settled(s)) return;
+      clearTimeout(timer);
+      queueMicrotask(() => off());
+      resolve(s);
+    });
+  });
+}
+
 export function onCloudStatus(fn) {
   listeners.add(fn);
   fn(status);
