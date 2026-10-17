@@ -259,7 +259,8 @@ export function guessCategory(draft) {
 
 // The Apple Notes Shortcut separates notes with a line like "===== NEXT RECIPE =====".
 export function splitBulk(text) {
-  const parts = String(text || '').split(/^\s*={3,}[^\n]*={3,}\s*$/m);
+  // The separator may sit on its own line or run into the text around it (Shortcuts' Combine Text can't add line breaks).
+  const parts = String(text || '').split(/={3,}\s*NEXT\s+RECIPE\s*={3,}|^\s*={3,}[^\n]*={3,}\s*$/im);
   return parts.map((p) => p.trim()).filter((p) => p.length > 2);
 }
 

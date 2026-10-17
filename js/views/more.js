@@ -201,13 +201,9 @@ export function notesHelpView(el) {
       <h2>1. Build the Shortcut</h2>
       <ol>
         <li>Open the <b>Shortcuts</b> app, tap <b>＋</b>, and name it <i>Export Recipe Notes</i>.</li>
-        <li>Add <b>Find Notes</b>. Tap <i>Add Filter</i> → <b>Folder</b> <i>is</i> <b>Recipes</b>. Turn off the result limit.</li>
-        <li>Add <b>Repeat with Each</b> (it uses the found notes).</li>
-        <li>Inside the repeat, add <b>Text</b> containing:<br>
-          <code>===== NEXT RECIPE =====</code> (new line) <b>Repeat Item</b> → Name (new line) <b>Repeat Item</b> → Body<br>
-          <small class="muted">Tap the Repeat Item variable to choose Name, then add it again and choose Body.</small></li>
-        <li>After <b>End Repeat</b>, add <b>Combine Text</b> (Repeat Results, with New Lines).</li>
-        <li>Add <b>Copy to Clipboard</b>, then <b>Show Notification</b> “Recipes copied”.</li>
+        <li>Add <b>Find Notes</b>. Tap <i>Add Filter</i> and set it to <b>Folder</b> <i>is</i> <b>Recipes</b>. Turn off <i>Limit</i> if it's on.</li>
+        <li>Add <b>Combine Text</b>. Tap the word after “with” (it says <i>New Lines</i>), choose <b>Custom</b>, and type <code>===== NEXT RECIPE =====</code></li>
+        <li>Add <b>Copy to Clipboard</b>. Done.</li>
       </ol>
       <h2>2. Run it and paste</h2>
       <ol>
