@@ -1,19 +1,23 @@
 # Meal Planner
 
 A personal recipe box, weekly meal planner and shopping list, built to live on an iPhone home screen.
-Plain HTML/CSS/JavaScript: no build step, so the folder can be uploaded to GitHub Pages as is.
+Plain HTML/CSS/JavaScript with no build step.
 
-## What's in phase 1
+**App:** https://meal-planner-pwg.web.app (Firebase Hosting). The old GitHub Pages address shows a "moved" notice.
+
+## Features so far
 
 - **Recipes:** add, edit, search (title, ingredients, tags, notes), categories, tags, ratings, a servings scaler
-- **Add:** paste text or a link, bulk import (Apple Notes / Keep), manual entry; an Inbox to review imports with duplicate warnings
+- **Add:** paste text or a link, bulk import (Apple Notes / Keep), manual entry; an Inbox to review imports with duplicate warnings.
+  Re-running the Apple Notes import only brings in new notes, and notes edited in Notes show a change list before updating.
+- **Links:** fetched through a private Cloudflare Worker (`worker/`), parsed from the site's structured recipe data
 - **Plan:** Sunday–Saturday weeks; breakfast/lunch/dinner on any day; per-meal default servings (1 / 1 / 3);
   batches whose leftovers cover later days (or another meal, like dinner → next-day lunch); "Not needed" (eating out, etc.); a "Made it" checkbox
 - **Shop:** built from the plan with ingredients scaled, combined across recipes and unit-converted (1 qt + 2 cups → 6 cups), grouped by aisle;
   check-offs survive plan changes; manual items, staples, and share/copy
-- **More:** default servings, staples, categories, never-buy list, link helper, backup and restore
-
-Data is stored on the device (IndexedDB) until Firebase sync is added.
+- **Sync:** Google sign-in; every record syncs to Firestore under `users/{uid}/…`, newest change wins, deletions sync too.
+  The app reads from the device (IndexedDB) first, so it works offline. Database rules allow only the owner's account.
+- **More:** account & sync, default servings, staples, categories, never-buy list, link helper, backup and restore
 
 ## Files
 
@@ -21,14 +25,23 @@ Data is stored on the device (IndexedDB) until Firebase sync is added.
 |---|---|
 | `index.html`, `css/app.css` | App shell and styles |
 | `js/app.js` | Router and tab bar |
-| `js/db.js` | Local storage layer |
+| `js/db.js` | Local storage layer (IndexedDB) with sync hooks and deletion tombstones |
+| `js/cloud.js`, `js/sync.js` | Loads Firebase on demand; sign-in and two-way sync |
 | `js/units.js`, `js/ingredients.js`, `js/aisles.js` | Quantity/unit parsing, conversion, aisle guessing |
-| `js/parser.js` | Recipe parsing from text and from recipe web pages |
+| `js/parser.js`, `js/importlog.js` | Recipe parsing from text and web pages; Apple Notes re-import fingerprints |
 | `js/model.js` | Recipes, weekly plans, shopping list logic |
 | `js/views/*` | Screens |
 | `sw.js`, `manifest.webmanifest`, `icons/` | Home-screen app and offline support |
-| `worker/recipe-helper.js` | Cloudflare Worker for link imports (and later the AI features) |
+| `firebase.json`, `.firebaserc`, `firestore.rules` | Firebase Hosting and database rules |
+| `worker/` | Cloudflare Worker for link imports (and later the AI features) |
 | `tools/serve.ps1` | Local preview server on Windows |
+
+## Deploying
+
+```
+.\node_modules\.bin\firebase.cmd deploy --only hosting,firestore:rules
+```
+Link helper (from `worker/`): `npx.cmd wrangler deploy`. Its access code is a Worker secret (`APP_TOKEN`) and is not in this repo.
 
 ## Preview on this PC
 
@@ -37,22 +50,8 @@ powershell -ExecutionPolicy Bypass -File tools\serve.ps1 -Root . -Port 8765
 ```
 Then open http://localhost:8765.
 
-## Put it on the iPhone (GitHub Pages)
-
-App address: **https://pwgreathouse.github.io/meal-planner/**
-
-1. Sign in at github.com, click **＋ → New repository**. Name it `meal-planner`, choose **Public**
-   (free GitHub Pages needs a public repo; only the app's code is public, never your recipes), and click **Create repository**.
-2. On the new repo's page click **uploading an existing file**. Open this project folder in File Explorer, select everything
-   inside it **except** the `.claude` folder, and drag it onto the page. Click **Commit changes**.
-3. Go to **Settings → Pages**. Under *Build and deployment*, set Source to **Deploy from a branch**, Branch to **main** and **/ (root)**, then **Save**.
-4. Wait a minute or two until the Pages screen shows the live address.
-5. On the iPhone, open that address in **Safari**, tap **Share → Add to Home Screen**, then open it from the new home-screen icon.
-
-To update later: upload the changed files the same way (same names overwrite), and the app picks them up next time it opens.
-
 ## Next phases
 
-2. Firebase sync and sign-in, Pantry (shopping → pantry → deduct when cooked, toss), iOS share-sheet Shortcut
-3. AI: screenshots, messy-text cleanup, pantry-based and web suggestions, nutrition and macros
-4. Email import, barcode scanning, cost tracking
+- Pantry (shopping → pantry → deduct when cooked, toss), iOS share-sheet Shortcut, screenshot Shortcut (on-device text recognition)
+- AI: screenshots, messy-text cleanup, pantry-based and web suggestions, nutrition and macros
+- Email import, barcode scanning, cost tracking

@@ -1,9 +1,13 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Each signed-in person can only read and write their own space: users/{their uid}/...
+    // Only the owner's Google account may read or write, and only inside their own space.
+    // To share with someone else later, add their uid to this list.
+    function isMember() {
+      return request.auth != null && request.auth.uid in ['GO01pCRGRzMwBknA1w3e839Bxrx1'];
+    }
     match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+      allow read, write: if isMember() && request.auth.uid == uid;
     }
   }
 }
