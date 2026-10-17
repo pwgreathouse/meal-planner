@@ -7,8 +7,11 @@
 
 export default {
   async fetch(request, env) {
+    // ALLOWED_ORIGIN may list several origins, comma separated.
+    const allowed = (env.ALLOWED_ORIGIN || '*').split(',').map((s) => s.trim());
+    const origin = request.headers.get('Origin') || '';
     const cors = {
-      'Access-Control-Allow-Origin': env.ALLOWED_ORIGIN || '*',
+      'Access-Control-Allow-Origin': allowed.includes('*') ? '*' : allowed.includes(origin) ? origin : allowed[0],
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
       'Access-Control-Allow-Headers': 'X-App-Token',
       'Vary': 'Origin',

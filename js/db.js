@@ -2,11 +2,12 @@
 // Every record has an `id` and an `updatedAt`, so cloud sync can be layered on later.
 
 const DB_NAME = 'meal-planner';
-const VERSION = 1;
+const VERSION = 2;
 export const STORES = ['recipes', 'weeks', 'inbox', 'shopping', 'settings'];
 
 let dbPromise;
 const cache = Object.fromEntries(STORES.map((s) => [s, new Map()]));
+const tombstones = new Map();
 const listeners = new Set();
 
 function open() {
@@ -15,7 +16,7 @@ function open() {
       const req = indexedDB.open(DB_NAME, VERSION);
       req.onupgradeneeded = () => {
         const db = req.result;
-        for (const s of STORES) {
+        for (const s of [...STORES, 'tombstones']) {
           if (!db.objectStoreNames.contains(s)) db.createObjectStore(s, { keyPath: 'id' });
         }
       };
@@ -41,12 +42,13 @@ function tx(store, fn) {
 export async function init() {
   const db = await open();
   await Promise.all(
-    STORES.map(
+    [...STORES, 'tombstones'].map(
       (s) =>
         new Promise((resolve, reject) => {
           const req = db.transaction(s).objectStore(s).getAll();
           req.onsuccess = () => {
-            for (const o of req.result) cache[s].set(o.id, o);
+            const target = s === 'tombstones' ? tombstones : cache[s];
+            for (const o of req.result) target.set(o.id, o);
             resolve();
           };
           req.onerror = () => reject(req.error);
@@ -65,6 +67,7 @@ export async function put(store, obj) {
   cache[store].set(obj.id, obj);
   await tx(store, (os) => os.put(obj));
   emit(store);
+  hook(store, obj);
   return obj;
 }
 
@@ -76,12 +79,49 @@ export async function putMany(store, objs) {
   }
   await tx(store, (os) => objs.forEach((o) => os.put(o)));
   emit(store);
+  objs.forEach((o) => hook(store, o));
 }
 
+// Deletes leave a tombstone so the deletion can reach the cloud even if made offline.
 export async function remove(store, id) {
   cache[store].delete(id);
+  const tomb = { id: `${store}/${id}`, store, recId: id, updatedAt: Date.now() };
+  tombstones.set(tomb.id, tomb);
   await tx(store, (os) => os.delete(id));
+  await tx('tombstones', (os) => os.put(tomb));
   emit(store);
+  hook(store, null, id, tomb);
+}
+
+// ---------- Sync support ----------
+
+export const allTombstones = () => [...tombstones.values()];
+
+export async function clearTombstone(key) {
+  tombstones.delete(key);
+  await tx('tombstones', (os) => os.delete(key));
+}
+
+// Applies a record that came from the cloud: keeps its timestamp and doesn't echo back.
+export async function applyRemote(store, obj) {
+  if (obj.deleted) {
+    if (!cache[store].has(obj.id)) return;
+    cache[store].delete(obj.id);
+    await tx(store, (os) => os.delete(obj.id));
+  } else {
+    cache[store].set(obj.id, obj);
+    await tx(store, (os) => os.put(obj));
+  }
+  emit(store);
+}
+
+const writeHooks = new Set();
+export function onWrite(fn) {
+  writeHooks.add(fn);
+  return () => writeHooks.delete(fn);
+}
+function hook(store, obj, id, tomb) {
+  for (const fn of writeHooks) fn(store, obj, id ?? obj?.id, tomb);
 }
 
 export function onChange(fn) {
@@ -113,6 +153,7 @@ export async function importAll(backup) {
     await tx(s, (os) => rows.forEach((r) => os.put(r)));
     count += rows.length;
     emit(s);
+    rows.forEach((r) => hook(s, r));
   }
   return count;
 }

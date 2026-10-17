@@ -5,6 +5,6 @@ workers_dev = true
 preview_urls = false
 
 [vars]
-ALLOWED_ORIGIN = "https://pwgreathouse.github.io"
+ALLOWED_ORIGIN = "https://meal-planner-pwg.web.app,https://meal-planner-pwg.firebaseapp.com,https://pwgreathouse.github.io"
 
 # APP_TOKEN is a secret, set with: npx wrangler secret put APP_TOKEN

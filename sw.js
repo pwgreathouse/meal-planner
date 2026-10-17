@@ -1,9 +1,9 @@
 // Offline support: network first (so updates show up right away), cached copy when offline.
-const CACHE = 'meal-planner-v2';
+const CACHE = 'meal-planner-v3';
 const SHELL = [
   './', './index.html', './css/app.css', './manifest.webmanifest', './icons/icon.svg',
   './js/app.js', './js/db.js', './js/util.js', './js/prefs.js', './js/units.js', './js/ingredients.js',
-  './js/aisles.js', './js/parser.js', './js/importlog.js', './js/model.js', './js/ui.js',
+  './js/aisles.js', './js/parser.js', './js/importlog.js', './js/cloud.js', './js/sync.js', './js/model.js', './js/ui.js',
   './js/views/recipes.js', './js/views/plan.js', './js/views/shop.js', './js/views/add.js', './js/views/more.js',
 ];
 
@@ -21,7 +21,19 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET' || url.origin !== location.origin) return;
+  if (e.request.method !== 'GET') return;
+  // Firebase SDK files are versioned and never change: cache first, so sync code loads offline too.
+  if (url.hostname === 'www.gstatic.com' && url.pathname.startsWith('/firebasejs/')) {
+    e.respondWith(
+      caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        return res;
+      }))
+    );
+    return;
+  }
+  if (url.origin !== location.origin || url.pathname.startsWith('/__/')) return;
   e.respondWith(
     fetch(e.request)
       .then((res) => {

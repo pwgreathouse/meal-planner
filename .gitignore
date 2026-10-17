@@ -6,3 +6,4 @@ node_modules/
 .wrangler/
 worker/.helper-code.txt
 test-pages/
+.firebase/

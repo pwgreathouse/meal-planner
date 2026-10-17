@@ -5,6 +5,7 @@ import { planView } from './views/plan.js';
 import { shopView } from './views/shop.js';
 import { addView, reviewView } from './views/add.js';
 import { moreView, notesHelpView, keepHelpView } from './views/more.js';
+import { startSync } from './cloud.js';
 
 const D = '(\\d{4}-\\d{2}-\\d{2})';
 const ROUTES = [
@@ -48,10 +49,22 @@ function route() {
 
 db.onChange((store) => current?.refresh?.(store));
 
+const NEW_HOME = 'https://meal-planner-pwg.web.app/';
+
 (async function start() {
   await db.init();
   window.addEventListener('hashchange', route);
   route();
+  if (location.hostname.endsWith('github.io')) {
+    // The app moved to Firebase Hosting so Google sign-in works on iPhone.
+    const b = document.createElement('div');
+    b.className = 'moved';
+    b.innerHTML = `<b>Meals has moved.</b> Open <a href="${NEW_HOME}">${NEW_HOME.replace('https://', '').replace(/\/$/, '')}</a> in Safari and add it to your Home Screen.
+      Already added recipes here? Tap More → Export backup first, then More → Restore in the new app.`;
+    document.body.prepend(b);
+  } else {
+    startSync();
+  }
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }

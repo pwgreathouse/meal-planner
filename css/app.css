@@ -223,6 +223,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .item.checked .item-name { text-decoration: line-through; color: var(--muted); }
 .aisle.done { opacity: .75; }
 
+.moved { background: var(--warn-soft); color: var(--text); padding: calc(var(--safe-t) + 12px) 16px 12px; font-size: .9rem; line-height: 1.4; }
+
 /* ---------- Help ---------- */
 .help { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 18px 16px; }
 .help h2 { margin: 20px 0 8px; }

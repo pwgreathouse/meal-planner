@@ -3,6 +3,7 @@ import * as db from '../db.js';
 import { esc } from '../util.js';
 import { getPrefs, savePrefs, MEALS } from '../prefs.js';
 import { toast, stepperHtml, wireSteppers } from '../ui.js';
+import { onCloudStatus, startSync, signIn, signOut } from '../cloud.js';
 
 const DEFAULT_HELPER = 'https://recipe-helper.pwgreathouse.workers.dev';
 const lines = (v) => String(v || '').split('\n').map((s) => s.trim()).filter(Boolean);
@@ -13,6 +14,8 @@ export function moreView(el) {
   el.innerHTML = `
     <header class="topbar"><h1>More</h1></header>
     <div class="settings">
+      <section class="panel" id="account"></section>
+
       <section class="panel">
         <h2>Pantry</h2>
         <p class="muted small">Coming in the next phase: track what's on hand, auto-add from shopping trips, subtract when you cook, and toss items.</p>
@@ -53,7 +56,7 @@ export function moreView(el) {
 
       <section class="panel">
         <h2>Backup</h2>
-        <p class="muted small">${counts.recipes} recipes${counts.inbox ? `, ${counts.inbox} in Inbox` : ''}. Your data lives on this device until cloud sync is set up, so export a backup now and then.</p>
+        <p class="muted small">${counts.recipes} recipes${counts.inbox ? `, ${counts.inbox} in Inbox` : ''}. When you're signed in, everything is backed up automatically. A backup file is an extra copy you can keep anywhere.</p>
         <div class="action-row"><button class="btn" id="export">Export backup</button><label class="btn file-btn">Restore…<input type="file" id="import" accept="application/json,.json" hidden></label></div>
       </section>
 
@@ -63,6 +66,35 @@ export function moreView(el) {
         <a class="link-row" href="#/help/keep">Import from Google Keep ›</a>
       </section>
     </div>`;
+
+  const account = el.querySelector('#account');
+  const stopStatus = onCloudStatus((s) => {
+    if (!account.isConnected) return stopStatus?.(); // left this screen
+    const when = s.at ? new Date(s.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+    const line = {
+      loading: 'Connecting…', starting: 'Connecting…', syncing: 'Syncing…', saving: 'Saving…',
+      synced: `Synced ✓${when ? ` · ${when}` : ''}`, error: `Sync problem: ${s.error || ''}`,
+      unavailable: 'Cloud sync unavailable right now (offline?). Your data is safe on this device.',
+    }[s.state] || '';
+    account.innerHTML = s.user
+      ? `<h2>Account & sync</h2>
+         <p class="small">Signed in as <b>${esc(s.user.email)}</b></p>
+         <p class="muted small">${esc(line)}</p>
+         <div class="action-row"><button class="btn" id="sign-out">Sign out</button></div>`
+      : `<h2>Account & sync</h2>
+         <p class="muted small">Sign in to back up everything to your private cloud space and use the app on more than one device.</p>
+         ${s.state === 'unavailable' || s.state === 'error' ? `<p class="warn small">${esc(line)}</p>` : ''}
+         <div class="action-row"><button class="btn primary" id="sign-in" ${['loading', 'starting'].includes(s.state) ? 'disabled' : ''}>Sign in with Google</button></div>`;
+  });
+  account.addEventListener('click', async (e) => {
+    try {
+      if (e.target.id === 'sign-in') await signIn();
+      if (e.target.id === 'sign-out' && confirm('Sign out? Your data stays on this device.')) await signOut();
+    } catch (err) {
+      if (err.code !== 'auth/popup-closed-by-user') toast(err.message || 'Sign-in failed', 4000);
+    }
+  });
+  startSync();
 
   const servings = { ...p.servings };
   wireSteppers(el, (k, v) => (servings[k] = v));
