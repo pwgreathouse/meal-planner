@@ -128,7 +128,7 @@ export function notesHelpView(el) {
       <h2>Good to know</h2>
       <ul>
         <li><b>Photos and screenshots</b> inside notes don't come across. Those notes import with whatever text they have. Use Live Text (press and hold the text in the image, Copy) or wait for the AI step.</li>
-        <li>Run it again later and possible duplicates are flagged in the Inbox.</li>
+        <li><b>Run it again any time.</b> Only new notes come in. Notes you've edited in Apple Notes show up as “Changed in Notes” with a list of what changed, and you choose to update the recipe or keep yours. Nothing is overwritten without your OK, and notes you discarded stay away unless they change.</li>
       </ul>
     </article>`;
 }

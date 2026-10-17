@@ -153,7 +153,7 @@ export function detailView(el, id) {
 }
 
 // Shared form for new, edited, and imported recipes.
-export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDelete, onCancel, aboveForm = '' }) {
+export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDelete, onCancel, cancelLabel = 'Discard', aboveForm = '' }) {
   const prefs = getPrefs();
   const cats = [...new Set([...prefs.categories, recipe.category].filter(Boolean))];
   el.innerHTML = `
@@ -179,7 +179,7 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
       <label>Notes<textarea name="notes" rows="4" placeholder="Swaps, tips, what the family thought…">${esc(recipe.notes || '')}</textarea></label>
       <label>Source link<input name="sourceUrl" type="url" inputmode="url" value="${esc(recipe.sourceUrl || '')}" placeholder="https://…"></label>
       <div class="form-actions">
-        ${onCancel ? '<button type="button" class="btn" id="cancel">Discard</button>' : ''}
+        ${onCancel ? `<button type="button" class="btn" id="cancel">${esc(cancelLabel)}</button>` : ''}
         ${onDelete ? '<button type="button" class="btn danger" id="delete">Delete recipe</button>' : ''}
       </div>
     </form>`;

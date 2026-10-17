@@ -5,6 +5,8 @@ import { getPrefs } from '../prefs.js';
 import { newRecipe } from '../model.js';
 import { parseRecipeText, parseRecipeHtml, splitBulk, isJustUrl, findDuplicate, emptyDraft } from '../parser.js';
 import { toast } from '../ui.js';
+import { ingredientText } from '../ingredients.js';
+import { getLog, noteKey, noteHash, recordImports, logEntryFor } from '../importlog.js';
 import { renderRecipeForm } from './recipes.js';
 
 // ---------- Fetching links ----------
@@ -114,10 +116,26 @@ export function addView(el, params = {}) {
   el.querySelector('#bulk-go').onclick = async () => {
     const parts = splitBulk(bulk.value);
     if (!parts.length) return toast('Nothing to import');
-    const items = parts.map((text) => makeItem({ text, source: 'bulk' }));
-    await db.putMany('inbox', items);
+    const log = getLog();
+    const pending = new Set(db.all('inbox').map((i) => i.noteKey).filter(Boolean));
+    const items = [];
+    let same = 0, changed = 0;
+    for (const text of parts) {
+      const key = noteKey(text), hash = noteHash(text), prev = log[key];
+      if (pending.has(key) || (prev && prev.hash === hash)) { same++; continue; }
+      const item = makeItem({ text, source: 'bulk' });
+      Object.assign(item, { noteKey: key, noteHash: hash });
+      if (prev?.status === 'saved' && db.get('recipes', prev.recipeId)) {
+        Object.assign(item, { kind: 'changed', targetId: prev.recipeId });
+        changed++;
+      }
+      items.push(item);
+      pending.add(key);
+    }
+    if (items.length) await db.putMany('inbox', items);
     bulk.value = '';
-    toast(`${items.length} added to Inbox`);
+    const added = items.length - changed;
+    toast([added && `${added} new`, changed && `${changed} changed`, same && `${same} already imported`].filter(Boolean).join(' · ') || 'Nothing new', 3500);
     const links = items.filter((i) => i.status === 'needs-fetch');
     if (links.length && getPrefs().fetchProxyUrl) {
       for (const i of links) await tryFetch(i);
@@ -128,7 +146,7 @@ export function addView(el, params = {}) {
   function drawInbox() {
     const recipes = db.all('recipes');
     const items = db.all('inbox').sort((a, b) => a.createdAt - b.createdAt);
-    const ready = items.filter((i) => i.status === 'ready');
+    const ready = items.filter((i) => i.status === 'ready' && i.kind !== 'changed');
     el.querySelector('#inbox').hidden = !items.length;
     el.querySelector('#inbox-count').textContent = items.length ? `${items.length} to review` : '';
     el.querySelector('#inbox-actions').innerHTML = items.length
@@ -136,11 +154,12 @@ export function addView(el, params = {}) {
       : '';
     el.querySelector('#inbox-list').innerHTML = items.length
       ? items.map((i) => {
-          const dup = findDuplicate(i.draft, recipes);
+          const target = i.kind === 'changed' && db.get('recipes', i.targetId);
+          const dup = !target && findDuplicate(i.draft, recipes);
           const n = i.draft.ingredients.filter((x) => !x.header).length;
           const sub = i.status === 'needs-fetch' ? 'Link — not fetched yet' : `${n} ingredients · ${i.draft.steps.length} steps`;
           return `<a class="card inbox-card" href="#/inbox/${i.id}">
-            <div class="card-title">${esc(i.draft.title || i.url || 'Untitled')}</div>
+            <div class="card-title">${target ? '<span class="pill">Changed in Notes</span> ' : ''}${esc(i.draft.title || i.url || 'Untitled')}</div>
             <div class="card-sub">${esc(sub)}${n === 0 && i.status === 'ready' ? ' · <b>needs a look</b>' : ''}</div>
             ${dup ? `<div class="warn small">Possible duplicate of “${esc(dup.title)}”</div>` : ''}
           </a>`;
@@ -150,15 +169,19 @@ export function addView(el, params = {}) {
 
   el.addEventListener('click', async (e) => {
     if (e.target.id === 'clear-all') {
-      if (!confirm('Discard everything in the Inbox?')) return;
-      for (const i of db.all('inbox')) await db.remove('inbox', i.id);
+      if (!confirm('Discard everything in the Inbox? Discarded notes won’t come back on the next import unless they change.')) return;
+      const all = db.all('inbox');
+      await recordImports(all.map((i) => logEntryFor(i, 'discarded')).filter(Boolean));
+      for (const i of all) await db.remove('inbox', i.id);
     }
     if (e.target.id === 'save-all') {
       const recipes = db.all('recipes');
-      const ready = db.all('inbox').filter((i) => i.status === 'ready' && !findDuplicate(i.draft, recipes) && i.draft.title);
-      if (!ready.length) return toast('Nothing ready to save (duplicates and untitled items need review)');
-      if (!confirm(`Save ${ready.length} recipes without reviewing? Duplicates and untitled items stay in the Inbox.`)) return;
-      await db.putMany('recipes', ready.map((i) => newRecipe({ ...i.draft, servings: i.draft.servings || 4, category: i.draft.category || 'Other' })));
+      const ready = db.all('inbox').filter((i) => i.status === 'ready' && i.kind !== 'changed' && !findDuplicate(i.draft, recipes) && i.draft.title);
+      if (!ready.length) return toast('Nothing ready to save (duplicates, changes, and untitled items need review)');
+      if (!confirm(`Save ${ready.length} recipes without reviewing? Duplicates, changed notes, and untitled items stay in the Inbox.`)) return;
+      const saved = ready.map((i) => newRecipe({ ...i.draft, servings: i.draft.servings || 4, category: i.draft.category || 'Other' }));
+      await db.putMany('recipes', saved);
+      await recordImports(ready.map((i, n) => logEntryFor(i, 'saved', saved[n].id)).filter(Boolean));
       for (const i of ready) await db.remove('inbox', i.id);
       toast(`Saved ${ready.length} recipes`);
     }
@@ -171,16 +194,58 @@ export function addView(el, params = {}) {
 
 // ---------- Review one inbox item ----------
 
+// Lists what differs between the app's recipe and the edited note: struck-through lines leave, green lines arrive.
+function changedBanner(oldR, newR) {
+  const lines = (r) => ({
+    Title: [r.title],
+    Servings: [String(r.servings || '')],
+    Ingredients: (r.ingredients || []).map((i) => ingredientText(i)),
+    Steps: r.steps || [],
+  });
+  const a = lines(oldR), b = lines(newR);
+  const sections = Object.keys(a)
+    .map((k) => {
+      const oldSet = new Set(a[k]), newSet = new Set(b[k]);
+      const removed = a[k].filter((l) => l && !newSet.has(l));
+      const added = b[k].filter((l) => l && !oldSet.has(l));
+      if (!removed.length && !added.length) return '';
+      return `<div class="diff-sec"><strong>${k}</strong>
+        ${removed.map((l) => `<div class="diff-del">− ${esc(l)}</div>`).join('')}
+        ${added.map((l) => `<div class="diff-add">+ ${esc(l)}</div>`).join('')}</div>`;
+    })
+    .join('');
+  return `<div class="banner">
+    <p><b>This note changed in Apple Notes</b> since you imported it as <a href="#/recipe/${oldR.id}">${esc(oldR.title)}</a>.
+    Save to update the recipe (your tags, rating, category and app notes stay), or keep your version.</p>
+    <div class="diff">${sections || '<p class="muted small">Only notes or formatting changed — nothing in the title, servings, ingredients or steps.</p>'}</div>
+  </div>`;
+}
+
 export function reviewView(el, id) {
   const item = db.get('inbox', id);
   if (!item) {
     el.innerHTML = `<div class="empty"><h2>Already handled</h2><a class="btn" href="#/add">Back to Inbox</a></div>`;
     return;
   }
-  const dup = findDuplicate(item.draft, db.all('recipes'));
-  const recipe = newRecipe({ ...item.draft, servings: item.draft.servings || 4, category: item.draft.category || 'Other' });
+  const target = item.kind === 'changed' ? db.get('recipes', item.targetId) : null;
+  const dup = !target && findDuplicate(item.draft, db.all('recipes'));
+  const d = item.draft;
+  // A changed note updates the existing recipe: text from Notes, but app-only details (tags, rating, category, notes) stay.
+  const recipe = target
+    ? {
+        ...structuredClone(target),
+        title: d.title || target.title,
+        servings: d.servings || target.servings,
+        prepMin: d.prepMin ?? target.prepMin,
+        cookMin: d.cookMin ?? target.cookMin,
+        ingredients: d.ingredients.length ? d.ingredients : target.ingredients,
+        steps: d.steps.length ? d.steps : target.steps,
+        sourceUrl: d.sourceUrl || target.sourceUrl,
+      }
+    : newRecipe({ ...d, servings: d.servings || 4, category: d.category || 'Other' });
 
   const banner = `
+    ${target ? changedBanner(target, recipe) : ''}
     ${dup ? `<div class="banner warn">Looks like a duplicate of <a href="#/recipe/${dup.id}">${esc(dup.title)}</a>.</div>` : ''}
     ${item.status === 'needs-fetch' ? `<div class="banner">
         <p>${esc(item.error || 'This is a link that hasn’t been fetched yet.')}</p>
@@ -189,20 +254,25 @@ export function reviewView(el, id) {
     ${item.rawText ? `<details class="original"><summary>Original text</summary><pre>${esc(item.rawText)}</pre></details>` : ''}`;
 
   renderRecipeForm(el, recipe, {
-    heading: 'Review import',
+    heading: target ? 'Update from Notes' : 'Review import',
     backHref: '#/add',
     aboveForm: banner,
+    cancelLabel: target ? 'Keep my version' : 'Discard',
     onSave: async (r) => {
       await db.put('recipes', r);
+      await recordImports([logEntryFor(item, 'saved', r.id)].filter(Boolean));
       await db.remove('inbox', id);
       const next = db.all('inbox').sort((a, b) => a.createdAt - b.createdAt)[0];
-      toast('Saved to recipes');
+      toast(target ? 'Recipe updated' : 'Saved to recipes');
       location.hash = next ? `#/inbox/${next.id}` : `#/recipe/${r.id}`;
     },
     onCancel: async () => {
-      if (!confirm('Discard this import?')) return;
+      if (!target && !confirm('Discard this import? It won’t come back on the next Notes import unless the note changes.')) return;
+      await recordImports([logEntryFor(item, 'discarded')].filter(Boolean));
       await db.remove('inbox', id);
-      location.hash = '#/add';
+      const next = db.all('inbox').sort((a, b) => a.createdAt - b.createdAt)[0];
+      if (target) toast('Kept your version');
+      location.hash = next ? `#/inbox/${next.id}` : '#/add';
     },
   });
 

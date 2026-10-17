@@ -142,6 +142,10 @@ input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); ou
 .banner { background: var(--accent-soft); border-radius: 12px; padding: 12px 14px; margin-bottom: 12px; }
 .banner.warn { background: var(--warn-soft); color: var(--text); }
 .banner p { margin: 0; }
+.diff { margin-top: 10px; display: grid; gap: 8px; font-size: .88rem; }
+.diff-sec strong { display: block; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.diff-del { color: var(--danger); text-decoration: line-through; }
+.diff-add { color: var(--accent); font-weight: 500; }
 .original { margin-bottom: 14px; }
 .original summary { cursor: pointer; color: var(--accent); font-size: .9rem; }
 .original pre { white-space: pre-wrap; background: var(--surface-2); padding: 12px; border-radius: 10px; font-size: .8rem; max-height: 300px; overflow: auto; }
