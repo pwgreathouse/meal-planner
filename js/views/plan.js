@@ -2,9 +2,8 @@
 import * as db from '../db.js';
 import { esc, today, weekStart, weekDates, addDays, fmtDay, fmtWeek } from '../util.js';
 import { getPrefs, MEALS } from '../prefs.js';
-import { getWeek, addRecipeEntry, addSkip, updateEntry, removeEntry, setCovers, leftoversOf, searchRecipes } from '../model.js';
+import { getWeek, addRecipeEntry, addSkip, updateEntry, removeEntry, setCovers, leftoversOf, searchRecipes, getList, addWeekToList, listResultText } from '../model.js';
 import { openSheet, toast, stepperHtml, wireSteppers, stepperValue, setStepper } from '../ui.js';
-import { openDeductSheet } from './pantry.js';
 
 const SKIP_LABELS = ['Eating out', 'Leftovers', 'Not needed', 'Takeout'];
 const mealLabel = (k) => MEALS.find((m) => m.key === k)?.label || k;
@@ -23,7 +22,7 @@ export function planView(el, startParam) {
     const thisWeek = weekStart(today());
 
     el.innerHTML = `
-      <header class="topbar"><h1>Plan</h1><a class="btn-text" href="#/shop/${start}">Shopping list ›</a></header>
+      <header class="topbar"><h1>Plan</h1>${cooks ? '<button class="btn-text strong" id="week-to-list">＋ Add to list</button>' : ''}</header>
       <div class="week-nav">
         <a class="btn-icon" href="#/plan/${addDays(start, -7)}" aria-label="Previous week">‹</a>
         <div class="week-label"><strong>${esc(fmtWeek(start))}</strong>
@@ -34,31 +33,10 @@ export function planView(el, startParam) {
       <div class="days">${dates.map((d) => dayHtml(week, d)).join('')}</div>`;
   }
 
-  // Your day's nutrition: one serving of each planned meal, using the recipes' per-serving estimates.
-  function dayNutrition(week, date) {
-    const goals = getPrefs().goals;
-    const meals = week.entries.filter((e) => e.date === date && e.type !== 'skip');
-    if (!meals.length) return '';
-    const t = { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0 };
-    let known = 0;
-    for (const e of meals) {
-      const src = e.type === 'leftover' ? week.entries.find((x) => x.id === e.sourceId) : e;
-      const n = src && db.get('recipes', src.recipeId)?.nutrition?.perServing;
-      if (!n) continue;
-      known++;
-      for (const k in t) t[k] += n[k] || 0;
-    }
-    if (!known) return '';
-    const cal = `${Math.round(t.calories).toLocaleString()}${goals.calories ? ` / ${goals.calories.toLocaleString()}` : ''} cal`;
-    const pro = `${Math.round(t.protein_g)}${goals.protein ? `/${goals.protein}` : ''}g protein`;
-    return `<div class="day-nutr">≈ ${cal} · ${pro} · ${Math.round(t.carbs_g)}g carbs · ${Math.round(t.fat_g)}g fat${known < meals.length ? ` <span class="muted">(${known} of ${meals.length} meals)</span>` : ''}</div>`;
-  }
-
   function dayHtml(week, date) {
     const isToday = date === today();
     return `<section class="day ${isToday ? 'today' : ''}">
       <h3>${esc(fmtDay(date, { weekday: 'long', month: 'short', day: 'numeric' }))}${isToday ? ' <span class="pill">Today</span>' : ''}</h3>
-      ${dayNutrition(week, date)}
       ${MEALS.map((m) => {
         const entries = week.entries.filter((e) => e.date === date && e.meal === m.key);
         return `<div class="slot">
@@ -87,7 +65,12 @@ export function planView(el, startParam) {
       <span class="entry-sub">${e.servings} serving${e.servings === 1 ? '' : 's'}${covers}</span></button>`;
   }
 
-  el.addEventListener('click', (ev) => {
+  el.addEventListener('click', async (ev) => {
+    if (ev.target.id === 'week-to-list') {
+      if (getList().addedWeeks?.[start] && !confirm('You already added this week to the list. Add its meals again?')) return;
+      const res = await addWeekToList(start);
+      return toast(listResultText(res), 4000);
+    }
     const add = ev.target.closest('.slot-add');
     if (add) return openAddToPlan({ start, date: add.dataset.date, meal: add.dataset.meal });
     const ent = ev.target.closest('[data-entry]');
@@ -356,11 +339,8 @@ function openEntrySheet(start, entryId) {
     if (made && !e.made && r) {
       r.lastMade = e.date;
       await db.put('recipes', r);
-      // Take what was cooked out of the pantry (the user confirms each change).
-      setTimeout(() => openDeductSheet(r, stepperValue(body, 'servings')), 250);
-    } else {
-      toast('Saved');
     }
+    toast('Saved');
   };
   body.querySelector('#rm').onclick = async () => {
     if (lo.length && !confirm('Remove this and its leftover days?')) return;

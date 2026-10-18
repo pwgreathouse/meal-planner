@@ -2,11 +2,11 @@
 import * as db from '../db.js';
 import { esc, fmtMinutes, fmtDay } from '../util.js';
 import { getPrefs } from '../prefs.js';
-import { newRecipe, searchRecipes, allTags } from '../model.js';
-import { parseIngredients, formatIngredient, ingredientText } from '../ingredients.js';
-import { toast, stepperHtml, wireSteppers, emptyState } from '../ui.js';
+import { newRecipe, searchRecipes, allTags, addRecipesToList, listResultText, knownIngredientNames } from '../model.js';
+import { parseIngredient, formatIngredient, ingredientText } from '../ingredients.js';
+import { formatQty, UNITS } from '../units.js';
+import { toast, stepperHtml, wireSteppers, emptyState, openSheet } from '../ui.js';
 import { openAddToPlan } from './plan.js';
-import { aiReady, aiNutrition, ingredientsSignature } from '../ai.js';
 
 const listState = { q: '', cat: 'All', sort: 'az' };
 
@@ -115,6 +115,7 @@ export function detailView(el, id) {
       ${r.tags?.length ? `<div class="tags">${r.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
       <div class="action-row">
         <button class="btn primary" id="plan">Add to plan</button>
+        ${r.ingredients?.length ? '<button class="btn" id="to-list">Add to list</button>' : ''}
         ${r.sourceUrl ? `<a class="btn" href="${esc(r.sourceUrl)}" target="_blank" rel="noopener">Source ↗</a>` : ''}
       </div>
       ${r.lastMade ? `<p class="muted small">Last made ${esc(fmtDay(r.lastMade, { month: 'short', day: 'numeric', year: 'numeric' }))}</p>` : ''}
@@ -124,47 +125,7 @@ export function detailView(el, id) {
       </section>
       ${r.steps?.length ? `<section><h2>Steps</h2><ol class="steps">${r.steps.map((s) => (/:$/.test(s) ? `<li class="step-head">${esc(s)}</li>` : `<li>${esc(s)}</li>`)).join('')}</ol></section>` : ''}
       ${r.notes ? `<section><h2>Notes</h2><p class="notes">${esc(r.notes)}</p></section>` : ''}
-      <section id="nutrition"></section>
     </article>`;
-
-  function drawNutrition() {
-    const n = r.nutrition;
-    const box = el.querySelector('#nutrition');
-    if (!n) {
-      box.innerHTML = aiReady() && r.ingredients?.length
-        ? `<h2>Nutrition</h2><button class="btn" id="est">✨ Estimate per serving</button> <small class="muted">about 1¢</small>`
-        : '';
-      return;
-    }
-    const s = n.perServing;
-    const stale = n.sig !== ingredientsSignature(r);
-    box.innerHTML = `
-      <div class="section-head"><h2>Nutrition <small class="muted">per serving</small></h2>
-        ${aiReady() ? `<button class="btn-text small" id="est">${stale ? 'Update' : 'Re-estimate'}</button>` : ''}</div>
-      ${stale ? '<p class="warn small">The recipe changed since this estimate.</p>' : ''}
-      <div class="macros">
-        <div><b>${Math.round(s.calories)}</b><span>calories</span></div>
-        <div><b>${Math.round(s.protein_g)}g</b><span>protein</span></div>
-        <div><b>${Math.round(s.carbs_g)}g</b><span>carbs</span></div>
-        <div><b>${Math.round(s.fat_g)}g</b><span>fat</span></div>
-      </div>
-      <p class="muted small">Fiber ${Math.round(s.fiber_g)}g · Sugar ${Math.round(s.sugar_g)}g · Sodium ${Math.round(s.sodium_mg)}mg · AI estimate, ${esc(n.confidence)} confidence. ${esc(n.notes || '')}</p>`;
-  }
-  drawNutrition();
-  el.querySelector('#nutrition').addEventListener('click', async (e) => {
-    if (e.target.id !== 'est') return;
-    e.target.disabled = true;
-    e.target.textContent = 'Estimating…';
-    try {
-      r.nutrition = await aiNutrition(r);
-      await db.put('recipes', r);
-      drawNutrition();
-    } catch (err) {
-      toast(err.message, 4000);
-      e.target.disabled = false;
-      e.target.textContent = 'Try again';
-    }
-  });
 
   function drawIngs() {
     const factor = servings / (r.servings || 1);
@@ -183,6 +144,10 @@ export function detailView(el, id) {
   });
 
   el.querySelector('#plan').addEventListener('click', () => openAddToPlan({ recipeId: r.id, servings: servings !== r.servings ? servings : null }));
+  el.querySelector('#to-list')?.addEventListener('click', async () => {
+    const res = await addRecipesToList([{ recipe: r, servings }]);
+    toast(listResultText(res), 3500);
+  });
   el.querySelector('#stars').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-star]');
     if (!b) return;
@@ -191,6 +156,35 @@ export function detailView(el, id) {
     await db.put('recipes', r);
     el.querySelectorAll('#stars button').forEach((s) => s.classList.toggle('on', +s.dataset.star <= r.rating));
   });
+}
+
+// Units offered in the ingredient picker, in a sensible order.
+const UNIT_CHOICES = ['tsp', 'tbsp', 'cup', 'floz', 'pint', 'quart', 'gallon', 'oz', 'lb', 'g', 'kg', 'ml', 'l',
+  'can', 'jar', 'package', 'bag', 'box', 'bottle', 'carton', 'clove', 'slice', 'stick', 'bunch', 'head', 'sprig', 'stalk', 'piece', 'pinch', 'dash', 'handful', 'loaf', 'block'];
+
+function autoGrow(t) {
+  t.style.height = 'auto';
+  t.style.height = `${t.scrollHeight + 2}px`;
+}
+
+// Removes rows the user never filled in, before pasting a list after them.
+function clearEmpty(container, selector) {
+  [...container.children].forEach((row) => {
+    const fields = [...row.querySelectorAll('input, textarea')].filter((x) => x.type !== 'hidden');
+    if (row.querySelector(selector) && fields.every((x) => !x.value.trim())) row.remove();
+  });
+}
+
+function pasteList(title, hint, onAdd) {
+  const sheet = openSheet(`<h2>${esc(title)}</h2><p class="muted small">${esc(hint)}</p>
+    <textarea id="pl" rows="10" class="field-row"></textarea>
+    <div class="action-row"><button class="btn primary" id="pl-add">Add</button><button class="btn" data-close>Cancel</button></div>`);
+  setTimeout(() => sheet.el.querySelector('#pl').focus(), 250);
+  sheet.el.querySelector('#pl-add').onclick = () => {
+    const lines = sheet.el.querySelector('#pl').value.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (lines.length) onAdd(lines);
+    sheet.close();
+  };
 }
 
 // Shared form for new, edited, and imported recipes.
@@ -206,19 +200,37 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
         <label>Category<select name="category">${cats.map((c) => `<option ${c === recipe.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
         <label>Servings<input name="servings" type="number" inputmode="numeric" min="1" value="${recipe.servings || ''}" placeholder="4"></label>
       </div>
-      <div class="grid-2">
-        <label>Prep (min)<input name="prepMin" type="number" inputmode="numeric" min="0" value="${recipe.prepMin || ''}"></label>
-        <label>Cook (min)<input name="cookMin" type="number" inputmode="numeric" min="0" value="${recipe.cookMin || ''}"></label>
-      </div>
-      <label>Ingredients <small class="muted">one per line · end a line with “:” for a heading</small>
-        <textarea name="ingredients" rows="10" placeholder="2 cups chicken broth&#10;1 lb chicken thighs&#10;1 onion, diced">${esc((recipe.ingredients || []).map((i) => (i.header ? `${i.name}:` : i.raw || ingredientText(i))).join('\n'))}</textarea></label>
-      <label>Steps <small class="muted">one per line</small>
-        <textarea name="steps" rows="10">${esc((recipe.steps || []).join('\n'))}</textarea></label>
-      <label>Tags <small class="muted">comma separated</small>
-        <input name="tags" list="tag-list" value="${esc((recipe.tags || []).join(', '))}" placeholder="quick, kid-friendly, freezer">
-        <datalist id="tag-list">${allTags().map((t) => `<option value="${esc(t)}">`).join('')}</datalist></label>
-      <label>Notes<textarea name="notes" rows="4" placeholder="Swaps, tips, what the family thought…">${esc(recipe.notes || '')}</textarea></label>
-      <label>Source link<input name="sourceUrl" type="url" inputmode="url" value="${esc(recipe.sourceUrl || '')}" placeholder="https://…"></label>
+      <fieldset class="rows-field">
+        <legend>Ingredients</legend>
+        <div class="ing-head-row muted small"><span>Amount</span><span>Unit</span><span>Ingredient</span></div>
+        <div id="ing-rows"></div>
+        <div class="row-actions">
+          <button type="button" class="btn" id="add-ing">＋ Ingredient</button>
+          <button type="button" class="btn-text small" id="add-sec">＋ Section heading</button>
+          <button type="button" class="btn-text small" id="paste-ing">Paste a list</button>
+        </div>
+        <datalist id="ing-names">${knownIngredientNames().map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+      </fieldset>
+      <fieldset class="rows-field">
+        <legend>Steps</legend>
+        <ol id="step-rows" class="step-rows"></ol>
+        <div class="row-actions">
+          <button type="button" class="btn" id="add-step">＋ Step</button>
+          <button type="button" class="btn-text small" id="paste-steps">Paste a list</button>
+        </div>
+      </fieldset>
+      <label>Notes<textarea name="notes" rows="3" placeholder="Swaps, tips, what the family thought…">${esc(recipe.notes || '')}</textarea></label>
+      <details class="more-details" ${recipe.tags?.length || recipe.sourceUrl ? 'open' : ''}>
+        <summary>More details</summary>
+        <label>Tags <small class="muted">comma separated</small>
+          <input name="tags" list="tag-list" value="${esc((recipe.tags || []).join(', '))}" placeholder="quick, kid-friendly, freezer">
+          <datalist id="tag-list">${allTags().map((t) => `<option value="${esc(t)}">`).join('')}</datalist></label>
+        <label>Source link<input name="sourceUrl" type="url" inputmode="url" value="${esc(recipe.sourceUrl || '')}" placeholder="https://…"></label>
+        <div class="grid-2">
+          <label>Prep (min)<input name="prepMin" type="number" inputmode="numeric" min="0" value="${recipe.prepMin || ''}"></label>
+          <label>Cook (min)<input name="cookMin" type="number" inputmode="numeric" min="0" value="${recipe.cookMin || ''}"></label>
+        </div>
+      </details>
       <div class="form-actions">
         ${onCancel ? `<button type="button" class="btn" id="cancel">${esc(cancelLabel)}</button>` : ''}
         ${onDelete ? '<button type="button" class="btn danger" id="delete">Delete recipe</button>' : ''}
@@ -226,6 +238,89 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
     </form>`;
 
   const form = el.querySelector('#rform');
+  const ingRows = el.querySelector('#ing-rows');
+  const stepRows = el.querySelector('#step-rows');
+
+  // ----- ingredient rows -----
+  const unitOptions = (sel) => `<option value="">—</option>${UNIT_CHOICES.map((k) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(UNITS[k].one)}</option>`).join('')}`;
+  function addIngRow(ing = {}, focus = false) {
+    const row = document.createElement('div');
+    if (ing.header) {
+      row.className = 'ing-row section';
+      row.innerHTML = `<input class="i-head" value="${esc(ing.name || '')}" placeholder="Section, e.g. For the sauce" enterkeyhint="next">
+        <button type="button" class="row-x" aria-label="Remove">✕</button>`;
+    } else {
+      const amount = ing.qty != null
+        ? formatQty(ing.qty) + (ing.max != null ? `-${formatQty(ing.max)}` : '') + (ing.size ? ` (${formatQty(ing.size.qty)} ${UNITS[ing.size.unit]?.one || ing.size.unit})` : '')
+        : '';
+      const unit = ing.unit && UNIT_CHOICES.includes(ing.unit) ? ing.unit : '';
+      // A unit we don't offer in the picker stays with the name, so nothing is lost.
+      const name = (ing.unit && !unit ? `${ing.unit} ` : '') + (ing.name || '') + (ing.note ? `, ${ing.note}` : '');
+      row.className = 'ing-row';
+      row.innerHTML = `<input class="i-amt" value="${esc(amount)}" inputmode="decimal" placeholder="2" aria-label="Amount">
+        <select class="i-unit" aria-label="Unit">${unitOptions(unit)}</select>
+        <input class="i-name" value="${esc(name)}" list="ing-names" placeholder="ingredient, prep" aria-label="Ingredient" enterkeyhint="next" autocapitalize="off">
+        <button type="button" class="row-x" aria-label="Remove">✕</button>`;
+    }
+    ingRows.appendChild(row);
+    if (focus) row.querySelector('input').focus();
+    return row;
+  }
+  (recipe.ingredients?.length ? recipe.ingredients : [{}, {}, {}]).forEach((i) => addIngRow(i));
+
+  // ----- step rows -----
+  function addStepRow(text = '', focus = false) {
+    const li = document.createElement('li');
+    li.className = 'step-row';
+    li.innerHTML = `<textarea class="s-text" rows="2" placeholder="What to do…" enterkeyhint="next">${esc(text)}</textarea>
+      <div class="step-tools"><button type="button" class="row-up" aria-label="Move up">↑</button><button type="button" class="row-down" aria-label="Move down">↓</button><button type="button" class="row-x" aria-label="Remove">✕</button></div>`;
+    stepRows.appendChild(li);
+    autoGrow(li.querySelector('textarea'));
+    if (focus) li.querySelector('textarea').focus();
+  }
+  (recipe.steps?.length ? recipe.steps : ['', '']).forEach((s) => addStepRow(s));
+
+  el.querySelector('#add-ing').onclick = () => addIngRow({}, true);
+  el.querySelector('#add-sec').onclick = () => addIngRow({ header: true }, true);
+  el.querySelector('#add-step').onclick = () => addStepRow('', true);
+  el.querySelector('#paste-ing').onclick = () => pasteList('Paste ingredients', 'One ingredient per line, e.g. “2 cups chicken broth”.', (lines) => {
+    clearEmpty(ingRows, '.i-name, .i-head');
+    lines.forEach((l) => addIngRow(parseIngredient(l) || {}));
+  });
+  el.querySelector('#paste-steps').onclick = () => pasteList('Paste steps', 'One step per line.', (lines) => {
+    clearEmpty(stepRows, '.s-text');
+    lines.forEach((l) => addStepRow(l.replace(/^(?:step\s*\d+\s*[:.)-]?|\d+\s*[.)])\s*/i, '')));
+  });
+
+  // Enter in an ingredient name jumps to a fresh row, so a list can be typed quickly.
+  ingRows.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' || !e.target.matches('.i-name, .i-head')) return;
+    e.preventDefault();
+    const row = e.target.closest('.ing-row');
+    const next = row.nextElementSibling;
+    if (next) next.querySelector('input').focus();
+    else addIngRow({}, true);
+  });
+  form.addEventListener('click', (e) => {
+    const row = e.target.closest('.ing-row, .step-row');
+    if (!row) return;
+    if (e.target.closest('.row-x')) row.remove();
+    else if (e.target.closest('.row-up') && row.previousElementSibling) row.parentNode.insertBefore(row, row.previousElementSibling);
+    else if (e.target.closest('.row-down') && row.nextElementSibling) row.parentNode.insertBefore(row.nextElementSibling, row);
+  });
+  stepRows.addEventListener('input', (e) => e.target.matches('textarea') && autoGrow(e.target));
+
+  const readIngredients = () =>
+    [...ingRows.children].map((row) => {
+      const head = row.querySelector('.i-head');
+      if (head) return head.value.trim() ? { raw: `${head.value.trim()}:`, header: true, name: head.value.trim().replace(/:$/, '') } : null;
+      const amt = row.querySelector('.i-amt').value.trim();
+      const unit = row.querySelector('.i-unit').value;
+      const name = row.querySelector('.i-name').value.trim();
+      if (!name && !amt) return null;
+      return parseIngredient([amt, unit ? UNITS[unit].one : '', name].filter(Boolean).join(' '));
+    }).filter(Boolean);
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = new FormData(form);
@@ -237,8 +332,8 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
       servings: num('servings') || recipe.servings || 4,
       prepMin: num('prepMin'),
       cookMin: num('cookMin'),
-      ingredients: parseIngredients(f.get('ingredients')),
-      steps: String(f.get('steps')).split('\n').map((s) => s.trim()).filter(Boolean),
+      ingredients: readIngredients(),
+      steps: [...stepRows.querySelectorAll('.s-text')].map((t) => t.value.trim()).filter(Boolean),
       tags: [...new Set(String(f.get('tags')).split(',').map((t) => t.trim().toLowerCase()).filter(Boolean))],
       notes: f.get('notes').trim(),
       sourceUrl: f.get('sourceUrl').trim(),

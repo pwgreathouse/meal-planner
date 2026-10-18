@@ -4,7 +4,7 @@ import { listView, detailView, editView } from './views/recipes.js';
 import { planView } from './views/plan.js';
 import { shopView } from './views/shop.js';
 import { addView, reviewView } from './views/add.js';
-import { moreView, notesHelpView, keepHelpView, shortcutsHelpView } from './views/more.js';
+import { moreView } from './views/more.js';
 import { startSync } from './cloud.js';
 import { pantryView } from './views/pantry.js';
 
@@ -20,9 +20,6 @@ const ROUTES = [
   [/^\/inbox\/([\w-]+)$/, reviewView, 'recipes'],
   [/^\/pantry$/, pantryView, 'pantry'],
   [/^\/more$/, moreView, 'more'],
-  [/^\/help\/notes$/, notesHelpView, 'more'],
-  [/^\/help\/keep$/, keepHelpView, 'more'],
-  [/^\/help\/shortcuts$/, shortcutsHelpView, 'more'],
 ];
 
 const main = document.getElementById('main');

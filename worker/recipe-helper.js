@@ -1,16 +1,9 @@
-// Cloudflare Worker for the Meals app:
-//   GET  /fetch?url=…   fetches a recipe page (recipe sites don't allow browsers to read them directly)
-//   POST /ai/parse      reads a recipe from text or a photo (Claude)
-//   POST /ai/suggest    suggests meals that use up the pantry (Claude + web search)
-//   POST /ai/nutrition  estimates nutrition per serving (Claude)
+// Cloudflare Worker for the Meals app (free plan):
+//   GET /fetch?url=…   fetches a recipe page, because recipe sites don't allow browsers to read them directly.
 //
 // Settings (wrangler.toml / secrets):
-//   APP_TOKEN          secret access code; the app sends it as X-App-Token
-//   ANTHROPIC_API_KEY  secret Claude API key
-//   ALLOWED_ORIGIN     the app's address(es), comma separated
-import { parseRecipe, suggestMeals, estimateNutrition, findRecipe, AiError } from './ai.js';
-
-const AI_ROUTES = { '/ai/parse': parseRecipe, '/ai/suggest': suggestMeals, '/ai/nutrition': estimateNutrition, '/ai/find': findRecipe };
+//   APP_TOKEN       secret access code; the app sends it as X-App-Token
+//   ALLOWED_ORIGIN  the app's address(es), comma separated
 
 export default {
   async fetch(request, env) {
@@ -18,11 +11,10 @@ export default {
     const origin = request.headers.get('Origin') || '';
     const cors = {
       'Access-Control-Allow-Origin': allowed.includes('*') ? '*' : allowed.includes(origin) ? origin : allowed[0],
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'X-App-Token, Content-Type',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'X-App-Token',
       'Vary': 'Origin',
     };
-    const json = (data, status = 200) => new Response(JSON.stringify(data), { status, headers: { ...cors, 'Content-Type': 'application/json' } });
     if (request.method === 'OPTIONS') return new Response(null, { headers: cors });
 
     const given = (request.headers.get('X-App-Token') || '').trim().toUpperCase();
@@ -31,30 +23,6 @@ export default {
     }
 
     const url = new URL(request.url);
-
-    if (url.pathname === '/ai/status') {
-      // Shape check only: the standard prefix and length, never the key itself.
-      const k = (env.ANTHROPIC_API_KEY || '').trim();
-      return json({ ai: !!k, looksLikeKey: /^sk-ant-[a-z]+/.test(k) && k.length > 40, length: k.length });
-    }
-
-    const handler = AI_ROUTES[url.pathname];
-    if (handler) {
-      if (request.method !== 'POST') return json({ error: 'Use POST' }, 405);
-      let body;
-      try {
-        body = await request.json();
-      } catch {
-        return json({ error: 'Bad JSON' }, 400);
-      }
-      try {
-        return json(await handler(env, body));
-      } catch (err) {
-        if (err instanceof AiError) return json({ error: err.message }, err.status);
-        return json({ error: 'Unexpected helper error' }, 500);
-      }
-    }
-
     if (url.pathname !== '/fetch') return new Response('Not found', { status: 404, headers: cors });
 
     let target;

@@ -1,173 +1,119 @@
-// Shopping list for a week: built from the plan, grouped by aisle, with manual items and staples.
+// The shopping list: one running checklist. Add anything by typing; pull in a week's meals with one tap.
 import * as db from '../db.js';
 import { esc, today, weekStart, addDays, fmtWeek } from '../util.js';
 import { getPrefs, savePrefs, AISLES } from '../prefs.js';
-import { getShopping, syncShopping, addManualItem } from '../model.js';
+import { getList, addManualItem, updateListItem, removeListItems, addWeekToList, weekBatches, listResultText } from '../model.js';
 import { ingredientKey } from '../ingredients.js';
-import { openSheet, toast, emptyState } from '../ui.js';
-import { addToPantry, defaultsFor, LOCATIONS } from '../pantry.js';
+import { openSheet, toast } from '../ui.js';
 
-export function shopView(el, startParam) {
-  const start = startParam || defaultShopWeek();
-  let showSources = false;
+export function shopView(el) {
+  let showRecipes = false;
 
   el.innerHTML = `
-    <header class="topbar"><h1>Shopping</h1><button class="btn-text" id="share">Share</button></header>
-    <div class="week-nav">
-      <a class="btn-icon" href="#/shop/${addDays(start, -7)}" aria-label="Previous week">‹</a>
-      <div class="week-label"><strong>${esc(fmtWeek(start))}</strong><small><a href="#/plan/${start}">View plan</a></small></div>
-      <a class="btn-icon" href="#/shop/${addDays(start, 7)}" aria-label="Next week">›</a>
-    </div>
-    <form class="inline-form add-item" id="add"><input id="add-name" placeholder="Add an item…" autocomplete="off" enterkeyhint="done"><button class="btn">Add</button></form>
+    <header class="topbar"><h1>List</h1><button class="btn-text" id="share">Share</button></header>
+    <form class="inline-form add-item" id="add">
+      <input id="add-name" placeholder="Add an item, e.g. milk or 2 lb chicken" autocomplete="off" enterkeyhint="done" list="list-suggest">
+      <button class="btn primary">Add</button>
+    </form>
+    <datalist id="list-suggest"></datalist>
     <div class="chips scroll-x" id="staples"></div>
+    <button class="btn block" id="add-week">＋ Add this week's meals</button>
     <div id="list"></div>`;
 
   function draw() {
     const prefs = getPrefs();
-    const list = getShopping(start);
-    const haveKeys = new Set(list.items.map((i) => i.key));
+    const list = getList();
+    const onList = new Set(list.items.filter((i) => !i.checked).map((i) => i.key));
     el.querySelector('#staples').innerHTML = prefs.staples
-      .filter((s) => !haveKeys.has(ingredientKey(s)))
+      .filter((s) => !onList.has(ingredientKey(s)))
       .map((s) => `<button class="chip" data-staple="${esc(s)}">＋ ${esc(s)}</button>`)
       .join('');
+    // Suggest things bought before.
+    el.querySelector('#list-suggest').innerHTML = [...new Set(list.items.map((i) => i.name))].map((n) => `<option value="${esc(n)}">`).join('');
 
-    const visible = list.items.filter((i) => !i.hidden && !(i.have && !i.checked));
-    const haveItems = list.items.filter((i) => !i.hidden && i.have && !i.checked);
-    const open = visible.filter((i) => !i.checked);
-    const done = visible.filter((i) => i.checked);
-    const toPutAway = done.filter((i) => !i.putAway);
-    if (!visible.length && !haveItems.length) {
-      el.querySelector('#list').innerHTML = emptyState(
-        'Nothing on the list yet',
-        'Add recipes to this week’s plan and their ingredients show up here, combined and grouped by aisle.',
-        `<a class="btn primary" href="#/plan/${start}">Go to plan</a>`
-      );
+    const open = list.items.filter((i) => !i.checked);
+    const done = list.items.filter((i) => i.checked);
+    if (!list.items.length) {
+      el.querySelector('#list').innerHTML = `<p class="muted center pad">Your list is empty. Type an item above, tap a staple, or add this week's meals.</p>`;
       return;
     }
     const groups = AISLES.map((a) => [a, open.filter((i) => (AISLES.includes(i.aisle) ? i.aisle : 'Other') === a)]).filter(([, items]) => items.length);
     el.querySelector('#list').innerHTML = `
-      <div class="list-meta"><span>${open.length} to get${done.length ? ` · ${done.length} in cart` : ''}</span>
-        <label class="small"><input type="checkbox" id="src" ${showSources ? 'checked' : ''}> show recipes</label></div>
+      <div class="list-meta"><span>${open.length} to get${done.length ? ` · ${done.length} done` : ''}</span>
+        <label class="small"><input type="checkbox" id="src" ${showRecipes ? 'checked' : ''}> show recipes</label></div>
       ${groups.map(([a, items]) => `<section class="aisle"><h3>${esc(a)}</h3>${items.map(itemHtml).join('')}</section>`).join('')}
-      ${done.length ? `<section class="aisle done"><h3>In cart
-          <span>${toPutAway.length ? `<button class="btn-text small strong" id="put-away">Put away ${toPutAway.length}</button>` : ''}<button class="btn-text small" id="clear">Clear</button></span></h3>
-          ${done.map(itemHtml).join('')}</section>` : ''}
-      ${haveItems.length ? `<details class="aisle have"><summary><h3>Already in pantry (${haveItems.length})</h3></summary>
-          ${haveItems.map(itemHtml).join('')}</details>` : ''}`;
+      ${done.length ? `<section class="aisle done"><h3>Done <button class="btn-text small" id="clear">Clear ${done.length}</button></h3>${done.map(itemHtml).join('')}</section>` : ''}`;
   }
 
   function itemHtml(i) {
-    return `<div class="item ${i.checked ? 'checked' : ''}" data-item="${i.id}">
+    return `<div class="item ${i.checked ? 'checked' : ''}">
       <button class="check-btn" data-toggle="${i.id}" aria-label="${i.checked ? 'Uncheck' : 'Check'} ${esc(i.name)}"></button>
       <button class="item-body" data-edit="${i.id}">
-        <span class="item-name">${esc(i.name)}${i.putAway ? ' <small class="muted">· put away</small>' : ''}</span>
-        ${i.have ? `<span class="item-amt">have ${esc(i.haveText)}</span>` : i.amount ? `<span class="item-amt">${esc(i.amount)}${i.haveText ? ` <small>(have ${esc(i.haveText)})</small>` : ''}</span>` : ''}
-        ${showSources && i.sources?.length ? `<span class="item-src">${esc(i.sources.join(', '))}</span>` : ''}
+        <span class="item-name">${esc(i.name)}</span>${i.amount ? `<span class="item-amt">${esc(i.amount)}</span>` : ''}
+        ${showRecipes && i.recipes?.length ? `<span class="item-src">${esc(i.recipes.join(', '))}</span>` : ''}
       </button></div>`;
-  }
-
-  async function mutate(fn) {
-    const list = getShopping(start);
-    fn(list);
-    await db.put('shopping', list);
   }
 
   el.addEventListener('click', async (e) => {
     const t = e.target;
     const tog = t.closest('[data-toggle]');
-    if (tog) return mutate((l) => { const i = l.items.find((x) => x.id === tog.dataset.toggle); if (i) i.checked = !i.checked; });
-    const ed = t.closest('[data-edit]');
-    if (ed) return openItemSheet(start, ed.dataset.edit);
-    const st = t.closest('[data-staple]');
-    if (st) return addManualItem(start, st.dataset.staple);
-    if (t.id === 'clear') {
-      if (!confirm('Remove checked items from the list?')) return;
-      // Plan items stay hidden by keeping them checked; manual items are deleted.
-      return mutate((l) => { l.items = l.items.filter((i) => !(i.checked && !i.fromPlan)); l.items.forEach((i) => { if (i.checked) i.hidden = true; }); });
+    if (tog) {
+      const it = getList().items.find((x) => x.id === tog.dataset.toggle);
+      return it && updateListItem(it.id, { checked: !it.checked });
     }
-    if (t.id === 'put-away') return openPutAway(start);
+    const ed = t.closest('[data-edit]');
+    if (ed) return openItemSheet(ed.dataset.edit);
+    const st = t.closest('[data-staple]');
+    if (st) return addManualItem(st.dataset.staple);
+    if (t.id === 'clear') return removeListItems(getList().items.filter((i) => i.checked).map((i) => i.id));
+    if (t.id === 'add-week') return openAddWeek();
     if (t.id === 'src') {
-      showSources = t.checked;
+      showRecipes = t.checked;
       draw();
     }
-    if (t.id === 'share') shareList(start);
+    if (t.id === 'share') shareList();
   });
+
   el.querySelector('#add').addEventListener('submit', async (e) => {
     e.preventDefault();
     const inp = el.querySelector('#add-name');
     const v = inp.value.trim();
     if (!v) return;
-    await addManualItem(start, v);
+    await addManualItem(v);
     inp.value = '';
+    inp.focus();
   });
 
-  syncShopping(start).then(draw);
   draw();
-  return {
-    refresh: (store) => {
-      if (store === 'shopping') draw();
-      if (store === 'pantry' || store === 'recipes' || store === 'weeks') syncShopping(start);
-    },
-  };
+  return { refresh: (store) => store === 'shopping' && draw() };
 }
 
-// Moves checked items into the pantry at the size actually bought (remembered for next time).
-function openPutAway(start) {
-  const prefs = getPrefs();
-  const items = getShopping(start).items.filter((i) => i.checked && !i.putAway && !i.hidden);
+// Pick which week's meals to add (this week or next).
+function openAddWeek() {
+  const thisWeek = weekStart(today());
+  const weeks = [thisWeek, addDays(thisWeek, 7)];
+  const added = getList().addedWeeks || {};
   const sheet = openSheet(`
-    <h2>Put away</h2>
-    <p class="muted small">Adjust to what you actually bought, e.g. “1 qt” of broth even if recipes need 2 cups. Leftovers stay in the pantry.</p>
-    <form id="pa" class="put-away">
-      ${items.map((i) => {
-        const d = defaultsFor(i.name, null);
-        const amount = prefs.purchaseSizes[i.key] || i.amount || '';
-        return `<div class="pa-row" data-id="${i.id}">
-          <label class="pa-check"><input type="checkbox" name="on" checked> <b>${esc(i.name)}</b></label>
-          <div class="pa-fields">
-            <input name="amount" value="${esc(amount)}" placeholder="amount, e.g. 1 qt">
-            <select name="location">${LOCATIONS.map((l) => `<option ${l === d.location ? 'selected' : ''}>${l}</option>`).join('')}</select>
-            <input name="expires" type="date" value="${esc(d.expires)}" aria-label="Use by">
-          </div>
-        </div>`;
-      }).join('')}
-      <button class="btn primary block">Add to pantry</button>
-    </form>`);
-  sheet.el.querySelector('#pa').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const sizes = { ...getPrefs().purchaseSizes };
-    const list = getShopping(start);
-    let n = 0;
-    for (const row of sheet.el.querySelectorAll('.pa-row')) {
-      const it = list.items.find((x) => x.id === row.dataset.id);
-      if (!it) continue;
-      it.putAway = true; // unchecked rows are just marked handled
-      if (!row.querySelector('[name=on]').checked) continue;
-      const amount = row.querySelector('[name=amount]').value.trim();
-      await addToPantry({
-        name: it.name, amount, source: 'shopping',
-        location: row.querySelector('[name=location]').value,
-        expires: row.querySelector('[name=expires]').value,
-      });
-      if (amount) sizes[it.key] = amount;
-      n++;
-    }
-    await savePrefs({ purchaseSizes: sizes });
-    await db.put('shopping', list);
+    <h2>Add meals to the list</h2>
+    <p class="muted small">Adds the ingredients from that week's planned meals, scaled to your servings and combined. Things in your Pantry are skipped.</p>
+    ${weeks.map((w, n) => {
+      const count = weekBatches(w).length;
+      return `<button class="pick" data-week="${w}" ${count ? '' : 'disabled'}>
+        <strong>${n ? 'Next week' : 'This week'} <small class="muted">${esc(fmtWeek(w))}</small></strong>
+        <small>${count ? `${count} meal${count === 1 ? '' : 's'}${added[w] ? ' · added before' : ''}` : 'nothing planned'}</small></button>`;
+    }).join('')}`);
+  sheet.el.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-week]');
+    if (!b) return;
+    if (added[b.dataset.week] && !confirm('You already added this week once. Add its meals again?')) return;
+    const res = await addWeekToList(b.dataset.week);
     sheet.close();
-    toast(`${n} item${n === 1 ? '' : 's'} added to pantry`);
+    toast(listResultText(res), 4000);
   });
 }
 
-// Saturday or Sunday: the list you're about to shop for is next week's (Sat) or this week's (Sun).
-function defaultShopWeek() {
-  const t = today();
-  return new Date().getDay() === 6 ? addDays(weekStart(t), 7) : weekStart(t);
-}
-
-function openItemSheet(start, id) {
-  const list = getShopping(start);
-  const item = list.items.find((i) => i.id === id);
+function openItemSheet(id) {
+  const item = getList().items.find((i) => i.id === id);
   if (!item) return;
   const sheet = openSheet(`
     <h2>Edit item</h2>
@@ -175,7 +121,7 @@ function openItemSheet(start, id) {
       <label>Item<input name="name" value="${esc(item.name)}"></label>
       <label>Amount<input name="amount" value="${esc(item.amount || '')}" placeholder="e.g. 2 lb"></label>
       <label>Aisle<select name="aisle">${AISLES.map((a) => `<option ${a === item.aisle ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></label>
-      ${item.sources?.length ? `<p class="muted small">For: ${esc(item.sources.join(', '))}</p>` : ''}
+      ${item.recipes?.length ? `<p class="muted small">For: ${esc(item.recipes.join(', '))}</p>` : ''}
       <div class="action-row"><button class="btn primary">Save</button><button type="button" class="btn danger" id="del">Remove</button></div>
     </form>`);
   const f = sheet.el.querySelector('#f');
@@ -184,42 +130,27 @@ function openItemSheet(start, id) {
     const d = new FormData(f);
     const aisle = d.get('aisle');
     if (aisle !== item.aisle) {
-      // Remember the aisle for this ingredient from now on.
-      const prefs = getPrefs();
-      await savePrefs({ aisleOverrides: { ...prefs.aisleOverrides, [item.key]: aisle } });
+      // Remember the aisle for this item from now on.
+      await savePrefs({ aisleOverrides: { ...getPrefs().aisleOverrides, [item.key]: aisle } });
     }
-    const name = d.get('name').trim() || item.name;
-    const amount = d.get('amount').trim();
-    const l = getShopping(start);
-    const it = l.items.find((i) => i.id === id);
-    Object.assign(it, { aisle, edited: it.edited || name !== item.name || amount !== (item.amount || ''), name, amount });
-    await db.put('shopping', l);
+    await updateListItem(id, { name: d.get('name').trim() || item.name, amount: d.get('amount').trim(), aisle });
     sheet.close();
   });
   sheet.el.querySelector('#del').addEventListener('click', async () => {
-    const l = getShopping(start);
-    const it = l.items.find((i) => i.id === id);
-    if (it.fromPlan) {
-      it.checked = true;
-      it.hidden = true;
-    } else {
-      l.items = l.items.filter((i) => i.id !== id);
-    }
-    await db.put('shopping', l);
+    await removeListItems([id]);
     sheet.close();
   });
 }
 
-async function shareList(start) {
-  const list = getShopping(start);
-  const open = list.items.filter((i) => !i.checked);
+async function shareList() {
+  const open = getList().items.filter((i) => !i.checked);
   const text = AISLES.map((a) => {
     const items = open.filter((i) => (i.aisle || 'Other') === a);
-    return items.length ? `${a}\n${items.map((i) => `• ${i.name}${i.amount ? ` — ${i.amount}` : ''}`).join('\n')}` : '';
+    return items.length ? `${a}\n${items.map((i) => `• ${i.name}${i.amount ? ` (${i.amount})` : ''}`).join('\n')}` : '';
   }).filter(Boolean).join('\n\n');
   if (!text) return toast('List is empty');
   try {
-    if (navigator.share) await navigator.share({ title: `Shopping ${fmtWeek(start)}`, text });
+    if (navigator.share) await navigator.share({ title: 'Shopping list', text });
     else {
       await navigator.clipboard.writeText(text);
       toast('Copied to clipboard');

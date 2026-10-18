@@ -263,6 +263,31 @@ details.aisle summary h3::after { content: " ▾"; }
 .ideas-head { margin: 0; }
 .file-btn.busy { opacity: .7; pointer-events: none; }
 
+/* ---------- Recipe form rows ---------- */
+.rows-field { border: 0; padding: 0; margin: 0; min-width: 0; }
+.rows-field legend { font-weight: 600; font-size: .9rem; padding: 0; margin-bottom: 6px; }
+.ing-head-row, .ing-row { display: grid; grid-template-columns: 62px 82px 1fr 32px; gap: 6px; align-items: center; }
+.ing-head-row { margin-bottom: 4px; padding: 0 2px; }
+.ing-row { margin-bottom: 6px; }
+.ing-row input, .ing-row select { padding: 9px 8px; border-radius: 10px; }
+.ing-row select { padding-right: 2px; }
+.ing-row.section { grid-template-columns: 1fr 32px; }
+.ing-row.section input { font-weight: 600; background: var(--surface-2); }
+.row-x, .row-up, .row-down { width: 32px; height: 32px; border: 0; background: none; color: var(--muted); font-size: 1rem; cursor: pointer; border-radius: 8px; }
+.row-x:hover, .row-up:hover, .row-down:hover { background: var(--surface-2); }
+.row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
+.step-rows { margin: 0; padding-left: 1.4em; display: grid; gap: 6px; }
+.step-row { display: grid; grid-template-columns: 1fr auto; gap: 4px; align-items: start; }
+.step-row textarea { resize: none; min-height: 44px; padding: 9px 10px; border-radius: 10px; }
+.step-tools { display: grid; grid-template-columns: repeat(3, 28px); }
+.step-tools button { width: 28px; }
+.more-details summary, details.panel summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: .9rem; }
+details.panel summary h2 { display: inline; color: var(--text); }
+.more-details { display: grid; gap: 12px; }
+.more-details[open] summary { margin-bottom: 10px; }
+.big-link { text-decoration: none; color: inherit; }
+.pick:disabled { opacity: .5; }
+
 /* ---------- Help ---------- */
 .help { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 18px 16px; }
 .help h2 { margin: 20px 0 8px; }
