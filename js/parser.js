@@ -82,14 +82,18 @@ export function parseRecipeText(text) {
   const ingLines = [], stepLines = [], noteLines = [];
 
   if (hasHeads) {
-    let section = 'notes';
+    // Before the first heading: with no "Ingredients" heading anywhere, ingredient-looking lines
+    // (e.g. a bulleted list followed by "Directions") are the ingredients.
+    const hasIngHead = body.some((l) => ING_HEAD.test(l));
+    let section = 'intro';
     for (const l of body) {
       if (!l) continue;
       if (ING_HEAD.test(l)) { section = 'ing'; continue; }
       if (STEP_HEAD.test(l)) { section = 'steps'; continue; }
       if (NOTE_HEAD.test(l)) { section = 'notes'; continue; }
       if (isUrlOnly(l) || isMeta(l)) continue;
-      (section === 'ing' ? ingLines : section === 'steps' ? stepLines : noteLines).push(l);
+      if (section === 'intro') (!hasIngHead && looksLikeIngredient(l) ? ingLines : noteLines).push(l);
+      else (section === 'ing' ? ingLines : section === 'steps' ? stepLines : noteLines).push(l);
     }
   } else {
     // No headings: the first run of ingredient-looking lines is the ingredient list.

@@ -8,9 +8,9 @@
 //   APP_TOKEN          secret access code; the app sends it as X-App-Token
 //   ANTHROPIC_API_KEY  secret Claude API key
 //   ALLOWED_ORIGIN     the app's address(es), comma separated
-import { parseRecipe, suggestMeals, estimateNutrition, AiError } from './ai.js';
+import { parseRecipe, suggestMeals, estimateNutrition, findRecipe, AiError } from './ai.js';
 
-const AI_ROUTES = { '/ai/parse': parseRecipe, '/ai/suggest': suggestMeals, '/ai/nutrition': estimateNutrition };
+const AI_ROUTES = { '/ai/parse': parseRecipe, '/ai/suggest': suggestMeals, '/ai/nutrition': estimateNutrition, '/ai/find': findRecipe };
 
 export default {
   async fetch(request, env) {

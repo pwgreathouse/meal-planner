@@ -65,6 +65,11 @@ export async function aiParseImages(images, extra) {
   return toDraft(await call('/ai/parse', { images }), extra);
 }
 
+// Looks for the published recipe a title-only note came from. Returns { found, url, title, site, confidence }.
+export async function aiFindOnline(title, text = '') {
+  return call('/ai/find', { title, text });
+}
+
 export async function aiSuggest({ pantry, recipes, basics, meal, notes, web = true, count = 6 }) {
   const today = new Date().toISOString().slice(0, 10);
   const data = await call('/ai/suggest', { pantry, recipes, basics, meal, notes, web, count, today });

@@ -8,7 +8,7 @@ import { toast } from '../ui.js';
 import { ingredientText } from '../ingredients.js';
 import { getLog, noteKey, noteHash, recordImports, logEntryFor } from '../importlog.js';
 import { getCloudStatus, waitForCloud } from '../cloud.js';
-import { aiReady, aiParseText, aiParseImages, imageToJpeg } from '../ai.js';
+import { aiReady, aiParseText, aiParseImages, imageToJpeg, aiFindOnline } from '../ai.js';
 import { renderRecipeForm } from './recipes.js';
 
 // ---------- Fetching links ----------
@@ -76,10 +76,35 @@ async function readClipboard() {
   }
 }
 
-// An import worth handing to AI: text that the rule-based parser couldn't split into ingredients and steps.
+// A note that's only a title and a comment or two: its recipe was a photo or link card that didn't export.
+const isTitleOnly = (i) => i.status === 'ready' && i.kind !== 'changed' && !i.draft.aiParsed && !i.foundOnline &&
+  !i.draft.ingredients.filter((x) => !x.header).length && (i.rawText || '').length < 400;
+
+// An import worth handing to AI: real text the rule-based parser couldn't split into ingredients and steps.
 const needsAiFix = (i) =>
-  i.status === 'ready' && i.rawText && !i.draft.aiParsed && i.kind !== 'changed' &&
+  i.status === 'ready' && i.rawText && !i.draft.aiParsed && i.kind !== 'changed' && !isTitleOnly(i) &&
   (!i.draft.ingredients.filter((x) => !x.header).length || !i.draft.steps.length);
+
+// Searches the web for a title-only note's recipe and, if found, imports that page, keeping the note's text as notes.
+// Returns true when a recipe was found.
+async function findOnline(item) {
+  const title = item.draft.title || (item.rawText || '').split('\n')[0];
+  const hit = await aiFindOnline(title, item.rawText);
+  item.foundOnline = true; // don't search again automatically
+  if (!hit.found) {
+    await db.put('inbox', item);
+    return false;
+  }
+  const keep = item.rawText.split('\n').slice(1).join('\n').trim();
+  const fetched = { ...item, url: hit.url };
+  await tryFetch(fetched);
+  if (fetched.status === 'ready') {
+    fetched.draft.notes = [keep, fetched.draft.notes].filter(Boolean).join('\n\n');
+    Object.assign(item, { draft: fetched.draft, url: hit.url, foundAt: hit.site });
+  }
+  await db.put('inbox', item);
+  return fetched.status === 'ready';
+}
 
 // ---------- Add screen ----------
 
@@ -230,15 +255,18 @@ export function addView(el, params = {}) {
     el.querySelector('#inbox').hidden = !items.length;
     el.querySelector('#inbox-count').textContent = items.length ? `${items.length} to review` : '';
     const needsAi = aiReady() ? items.filter(needsAiFix) : [];
+    const findable = aiReady() ? items.filter(isTitleOnly) : [];
     el.querySelector('#inbox-actions').innerHTML = items.length
-      ? `${needsAi.length ? `<button class="btn-text small strong" id="ai-all">✨ Fix ${needsAi.length} with AI</button>` : ''}${ready.length > 1 ? `<button class="btn-text small" id="save-all">Save ${ready.length} as-is</button>` : ''}<button class="btn-text small danger" id="clear-all">Clear</button>`
+      ? `${needsAi.length ? `<button class="btn-text small strong" id="ai-all">✨ Fix ${needsAi.length} with AI</button>` : ''}${findable.length ? `<button class="btn-text small strong" id="find-all">🔎 Find ${findable.length} online</button>` : ''}${ready.length > 1 ? `<button class="btn-text small" id="save-all">Save ${ready.length} as-is</button>` : ''}<button class="btn-text small danger" id="clear-all">Clear</button>`
       : '';
     el.querySelector('#inbox-list').innerHTML = items.length
       ? items.map((i) => {
           const target = i.kind === 'changed' && db.get('recipes', i.targetId);
           const dup = !target && findDuplicate(i.draft, recipes);
           const n = i.draft.ingredients.filter((x) => !x.header).length;
-          const sub = i.status === 'needs-fetch' ? 'Link — not fetched yet' : `${n} ingredients · ${i.draft.steps.length} steps`;
+          const sub = i.status === 'needs-fetch' ? 'Link — not fetched yet'
+            : isTitleOnly(i) ? (i.foundOnline ? 'Title only · not found online' : 'Title only · recipe was a photo or link')
+            : `${n} ingredients · ${i.draft.steps.length} steps${i.foundAt ? ` · found at ${i.foundAt}` : ''}`;
           return `<a class="card inbox-card" href="#/inbox/${i.id}">
             <div class="card-title">${target ? '<span class="pill">Changed in Notes</span> ' : ''}${esc(i.draft.title || i.url || 'Untitled')}</div>
             <div class="card-sub">${esc(sub)}${n === 0 && i.status === 'ready' ? ' · <b>needs a look</b>' : ''}</div>
@@ -249,6 +277,23 @@ export function addView(el, params = {}) {
   }
 
   el.addEventListener('click', async (e) => {
+    if (e.target.id === 'find-all') {
+      const todo = db.all('inbox').filter(isTitleOnly);
+      if (!confirm(`Search the web for ${todo.length} title-only notes? About 5–10¢ each (roughly $${(todo.length * 0.08).toFixed(2)} total). Family recipes usually won't be found.`)) return;
+      e.target.disabled = true;
+      let found = 0, n = 0;
+      for (const it of todo) {
+        e.target.textContent = `Searching ${++n} of ${todo.length}…`;
+        try {
+          if (await findOnline(it)) found++;
+        } catch (err) {
+          toast(err.message, 4000);
+          break;
+        }
+      }
+      toast(`Found ${found} of ${todo.length} online`, 4000);
+      return;
+    }
     if (e.target.id === 'ai-all') {
       const todo = db.all('inbox').filter(needsAiFix);
       if (!confirm(`Let AI tidy ${todo.length} imports that didn't come out cleanly? Roughly 1¢ each.`)) return;
@@ -344,8 +389,19 @@ export function reviewView(el, id) {
     : newRecipe({ ...d, servings: d.servings || 4, category: d.category || 'Other' });
 
   const weak = !d.ingredients.filter((i) => !i.header).length || !d.steps.length;
-  const canAi = aiReady() && item.rawText && !target && !d.aiParsed && item.status === 'ready';
+  const titleOnly = isTitleOnly(item);
+  const canAi = aiReady() && item.rawText && !target && !d.aiParsed && item.status === 'ready' && !titleOnly;
   const banner = `
+    ${titleOnly ? `<div class="banner warn">
+        <p><b>Only the title came through.</b> The recipe in this note was probably a photo or a link preview, which iPhone can't export.</p>
+        <ul class="small">
+          <li>Photo in the note? Press and hold it → <b>Save to Photos</b>, then use <a href="#/add">Add → Choose photos</a>.</li>
+          <li>Link in the note? Tap it, copy the address, and paste it into <a href="#/add">Add → Paste a recipe</a>.</li>
+        </ul>
+        ${aiReady() ? '<div class="action-row"><button class="btn primary" id="find-online">🔎 Find this recipe online</button><small class="muted">about 5–10¢</small></div>' : ''}
+      </div>` : ''}
+    ${item.foundAt ? `<div class="banner">🔎 Found online at <b>${esc(item.foundAt)}</b>. Check it's the right one; your note's comments are kept in Notes.</div>` : ''}
+    ${item.foundOnline && !item.foundAt ? '<div class="banner">🔎 Couldn’t find this one online. It may be a family recipe. Add it from a photo, or type it in below.</div>' : ''}
     ${canAi ? `<div class="banner ${weak ? 'warn' : ''}">
         <p>${weak ? 'This one didn’t come out cleanly.' : 'Something look off?'} Let AI tidy it into a proper recipe (about 1¢).</p>
         <div class="action-row"><button class="btn primary" id="ai-clean">✨ Clean up with AI</button></div></div>` : ''}
@@ -379,6 +435,17 @@ export function reviewView(el, id) {
       if (target) toast('Kept your version');
       location.hash = next ? `#/inbox/${next.id}` : '#/add';
     },
+  });
+
+  el.querySelector('#find-online')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    e.target.textContent = 'Searching… (up to 30 seconds)';
+    try {
+      await findOnline(item);
+    } catch (err) {
+      toast(err.message, 4000);
+    }
+    reviewView(el, id);
   });
 
   el.querySelector('#ai-clean')?.addEventListener('click', async (e) => {

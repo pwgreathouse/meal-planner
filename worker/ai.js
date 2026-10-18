@@ -178,6 +178,42 @@ Give up to ${want} ideas${web ? ', mixing saved recipes and new recipes found on
   return result;
 }
 
+// ---------- Find a recipe online from a title ----------
+
+const FIND_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['found', 'url', 'title', 'site', 'confidence'],
+  properties: {
+    found: { type: 'boolean' },
+    url: { type: 'string', description: 'exact recipe page URL from the search results, or empty' },
+    title: { type: 'string' },
+    site: { type: 'string' },
+    confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
+  },
+};
+
+const FIND_SYSTEM = `A home cook saved a recipe note that lost its link or content. From the note's title (and any scraps of text), find the original published recipe page.
+Titles often include the source after "|" or "-" (a site, blog or cookbook author) or a person's name in parentheses; a person's first name alone (e.g. "| Mar", "(from Lesley)") usually means a family recipe that won't be online.
+Search the web. Return the exact URL of the single best-matching recipe page from your search results. Never make up a URL.
+Use confidence "high" only for a clear match (same title and source); "medium" for the same dish from a likely source; otherwise set found to false.`;
+
+export async function findRecipe(env, body) {
+  const title = String(body.title || '').slice(0, 300);
+  if (!title) throw new AiError('No title to search for', 400);
+  const result = await ask(env, {
+    model: body.model,
+    system: FIND_SYSTEM,
+    content: [{ type: 'text', text: `Note title: ${title}${body.text ? `\nNote text:\n${String(body.text).slice(0, 2000)}` : ''}` }],
+    schema: FIND_SCHEMA,
+    effort: 'low',
+    tools: [{ type: 'web_search_20260209', name: 'web_search', max_uses: 3 }],
+  });
+  const d = result.data;
+  if (!d.found || !/^https?:\/\/\S+\.\S+/.test(d.url || '') || d.confidence === 'low') result.data = { ...d, found: false, url: '' };
+  return result;
+}
+
 // ---------- Estimate nutrition ----------
 
 const NUTRITION_SCHEMA = {
