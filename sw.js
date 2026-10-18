@@ -1,5 +1,5 @@
 ﻿// Offline support: network first (so updates show up right away), cached copy when offline.
-const CACHE = 'meal-planner-v8';
+const CACHE = 'meal-planner-v9';
 const SHELL = [
   './', './index.html', './css/app.css', './manifest.webmanifest', './icons/icon.svg',
   './js/app.js', './js/db.js', './js/util.js', './js/prefs.js', './js/units.js', './js/ingredients.js',

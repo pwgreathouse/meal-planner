@@ -114,18 +114,25 @@ export function moreView(el) {
   const servings = { ...p.servings };
   wireSteppers(el, (k, v) => (servings[k] = v));
 
+  const readForm = () => ({
+    servings: { ...servings },
+    staples: lines(el.querySelector('#staples').value),
+    categories: lines(el.querySelector('#categories').value),
+    neverBuy: lines(el.querySelector('#never').value),
+    basics: lines(el.querySelector('#basics').value),
+    aiModel: el.querySelector('#ai-model').value,
+    goals: { calories: +el.querySelector('#goal-cal').value || 0, protein: +el.querySelector('#goal-pro').value || 0 },
+    fetchProxyUrl: el.querySelector('#proxy').value.trim(),
+    fetchProxyToken: el.querySelector('#token').value.trim().toUpperCase(),
+  });
+  // Save only what was changed on this screen, so a screen opened before sync finished can't overwrite newer settings.
+  const initial = readForm();
   el.querySelector('#save').onclick = async () => {
-    await savePrefs({
-      servings,
-      staples: lines(el.querySelector('#staples').value),
-      categories: lines(el.querySelector('#categories').value),
-      neverBuy: lines(el.querySelector('#never').value),
-      basics: lines(el.querySelector('#basics').value),
-      aiModel: el.querySelector('#ai-model').value,
-      goals: { calories: +el.querySelector('#goal-cal').value || 0, protein: +el.querySelector('#goal-pro').value || 0 },
-      fetchProxyUrl: el.querySelector('#proxy').value.trim(),
-      fetchProxyToken: el.querySelector('#token').value.trim().toUpperCase(),
-    });
+    const now = readForm();
+    const patch = Object.fromEntries(Object.entries(now).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(initial[k])));
+    if (!Object.keys(patch).length) return toast('Nothing changed');
+    await savePrefs(patch);
+    Object.assign(initial, patch);
     toast('Settings saved');
   };
 
