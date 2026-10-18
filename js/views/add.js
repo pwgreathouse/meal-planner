@@ -76,6 +76,10 @@ async function readClipboard() {
   }
 }
 
+// Has a title, ingredients and steps: safe to save without a look.
+const isComplete = (i) => i.status === 'ready' && i.kind !== 'changed' && i.draft.title &&
+  i.draft.ingredients.some((x) => !x.header) && i.draft.steps.length > 0;
+
 // A note that's only a title and a comment or two: its recipe was a photo or link card that didn't export.
 const isTitleOnly = (i) => i.status === 'ready' && i.kind !== 'changed' && !i.draft.aiParsed && !i.foundOnline &&
   !i.draft.ingredients.filter((x) => !x.header).length && (i.rawText || '').length < 400;
@@ -251,7 +255,7 @@ export function addView(el, params = {}) {
   function drawInbox() {
     const recipes = db.all('recipes');
     const items = db.all('inbox').sort((a, b) => a.createdAt - b.createdAt);
-    const ready = items.filter((i) => i.status === 'ready' && i.kind !== 'changed');
+    const ready = items.filter(isComplete);
     el.querySelector('#inbox').hidden = !items.length;
     el.querySelector('#inbox-count').textContent = items.length ? `${items.length} to review` : '';
     const needsAi = aiReady() ? items.filter(needsAiFix) : [];
@@ -320,9 +324,9 @@ export function addView(el, params = {}) {
     }
     if (e.target.id === 'save-all') {
       const recipes = db.all('recipes');
-      const ready = db.all('inbox').filter((i) => i.status === 'ready' && i.kind !== 'changed' && !findDuplicate(i.draft, recipes) && i.draft.title);
-      if (!ready.length) return toast('Nothing ready to save (duplicates, changes, and untitled items need review)');
-      if (!confirm(`Save ${ready.length} recipes without reviewing? Duplicates, changed notes, and untitled items stay in the Inbox.`)) return;
+      const ready = db.all('inbox').filter((i) => isComplete(i) && !findDuplicate(i.draft, recipes));
+      if (!ready.length) return toast('Nothing complete to save (duplicates and incomplete imports need review)');
+      if (!confirm(`Save ${ready.length} complete recipes without reviewing? Incomplete ones, duplicates and changed notes stay in the Inbox.`)) return;
       const saved = ready.map((i) => newRecipe({ ...i.draft, servings: i.draft.servings || 4, category: i.draft.category || 'Other' }));
       await db.putMany('recipes', saved);
       await recordImports(ready.map((i, n) => logEntryFor(i, 'saved', saved[n].id)).filter(Boolean));
