@@ -214,7 +214,7 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
       </div>
       <fieldset class="rows-field">
         <legend>Ingredients</legend>
-        <div class="ing-head-row muted small"><span>Amount</span><span>Unit</span><span>Ingredient</span></div>
+        <div class="ing-head-row muted small"><span></span><span>Amount</span><span>Unit</span><span>Ingredient</span></div>
         <div id="ing-rows"></div>
         <div class="row-actions">
           <button type="button" class="btn" id="add-ing">＋ Ingredient</button>
@@ -244,11 +244,17 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
 
   // ----- ingredient rows -----
   const unitOptions = (sel) => `<option value="">—</option>${UNIT_CHOICES.map((k) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(UNITS[k].one)}</option>`).join('')}`;
+  // Safari's AutoFill copies values between identical-looking fields; a unique name per row and
+  // autocomplete="off" on each field keep every new line empty.
+  let rowSeq = 0;
+  const noFill = () => `autocomplete="off" autocorrect="off" spellcheck="false"`;
+  const handle = '<button type="button" class="drag" aria-label="Drag to reorder" tabindex="-1">≡</button>';
   function addIngRow(ing = {}, focus = false) {
     const row = document.createElement('div');
+    const n = rowSeq++;
     if (ing.header) {
       row.className = 'ing-row section';
-      row.innerHTML = `<input class="i-head" value="${esc(ing.name || '')}" placeholder="Section, e.g. For the sauce" enterkeyhint="next">
+      row.innerHTML = `${handle}<input class="i-head" name="head-${n}" ${noFill()} value="${esc(ing.name || '')}" placeholder="Section, e.g. For the sauce" enterkeyhint="next">
         <button type="button" class="row-x" aria-label="Remove">✕</button>`;
     } else {
       const amount = ing.qty != null
@@ -258,15 +264,51 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
       // A unit we don't offer in the picker stays with the name, so nothing is lost.
       const name = (ing.unit && !unit ? `${ing.unit} ` : '') + (ing.name || '') + (ing.note ? `, ${ing.note}` : '');
       row.className = 'ing-row';
-      row.innerHTML = `<input class="i-amt" value="${esc(amount)}" inputmode="decimal" placeholder="2" aria-label="Amount">
-        <select class="i-unit" aria-label="Unit">${unitOptions(unit)}</select>
-        <input class="i-name" value="${esc(name)}" list="ing-names" placeholder="ingredient, prep" aria-label="Ingredient" enterkeyhint="next" autocapitalize="off">
+      row.innerHTML = `${handle}<input class="i-amt" name="amt-${n}" ${noFill()} value="${esc(amount)}" inputmode="decimal" placeholder="2" aria-label="Amount">
+        <select class="i-unit" name="unit-${n}" autocomplete="off" aria-label="Unit">${unitOptions(unit)}</select>
+        <input class="i-name" name="ing-${n}" ${noFill()} value="${esc(name)}" list="ing-names" placeholder="ingredient, prep" aria-label="Ingredient" enterkeyhint="next" autocapitalize="off">
         <button type="button" class="row-x" aria-label="Remove">✕</button>`;
     }
     ingRows.appendChild(row);
-    if (focus) row.querySelector('input').focus();
+    if (focus) {
+      // Start the new line clean even if the browser tried to fill it in.
+      row.querySelectorAll('input').forEach((i) => { if (!ing.name && !ing.qty) i.value = ''; });
+      row.querySelector('input').focus();
+    }
     return row;
   }
+
+  // ----- drag to reorder (pointer events, so it works with touch on iPhone too) -----
+  ingRows.addEventListener('pointerdown', (e) => {
+    const grip = e.target.closest('.drag');
+    if (!grip) return;
+    e.preventDefault();
+    const row = grip.closest('.ing-row');
+    row.classList.add('dragging');
+    document.activeElement?.blur?.();
+    const move = (ev) => {
+      ev.preventDefault();
+      const y = ev.clientY;
+      const others = [...ingRows.children].filter((r) => r !== row);
+      const before = others.find((r) => {
+        const b = r.getBoundingClientRect();
+        return y < b.top + b.height / 2;
+      });
+      if ((before || null) !== row.nextElementSibling) ingRows.insertBefore(row, before || null);
+      // Scroll when dragging near the top or bottom of the screen.
+      if (y < 90) window.scrollBy(0, -10);
+      else if (y > window.innerHeight - 110) window.scrollBy(0, 10);
+    };
+    const end = () => {
+      row.classList.remove('dragging');
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', end);
+      document.removeEventListener('pointercancel', end);
+    };
+    document.addEventListener('pointermove', move, { passive: false });
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', end);
+  });
   (recipe.ingredients?.length ? recipe.ingredients : [{}, {}, {}]).forEach((i) => addIngRow(i));
 
   el.querySelector('#add-ing').onclick = () => addIngRow({}, true);
