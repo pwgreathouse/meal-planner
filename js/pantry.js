@@ -5,6 +5,7 @@
 import * as db from './db.js';
 import { uid, capitalize } from './util.js';
 import { ingredientKey, parseIngredient } from './ingredients.js';
+import { remember } from './catalog.js';
 import { unitDim, toBase, fromBase, friendlyVolume, friendlyWeight, formatAmount, unitLabel, formatQty } from './units.js';
 
 const EPS = 1e-6;
@@ -70,6 +71,7 @@ export async function addToPantry(name, amount = '') {
   name = capitalize(String(name).trim());
   const key = ingredientKey(name);
   const parsed = parseAmount(amount);
+  await remember([{ name }]);
   const existing = itemsFor(key)[0];
   if (existing) {
     const a = itemMeasures(existing), b = measures(parsed.qty, parsed.unit, parsed.size);

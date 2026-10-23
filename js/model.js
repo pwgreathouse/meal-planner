@@ -6,6 +6,7 @@ import { unitDim, toBase, friendlyVolume, friendlyWeight, formatAmount, unitLabe
 import { guessAisle } from './aisles.js';
 import { getPrefs } from './prefs.js';
 import { subtractPantry } from './pantry.js';
+import { remember, catalogEntries } from './catalog.js';
 
 // ---------- Recipes ----------
 
@@ -221,6 +222,7 @@ export async function addRecipesToList(batches) {
     }
   }
   await saveList(list);
+  await remember(batches.flatMap(({ recipe }) => (recipe.ingredients || []).filter((i) => !i.header && i.name).map((i) => ({ name: i.name }))));
   return { added, merged, skipped };
 }
 
@@ -248,25 +250,55 @@ export async function addWeekToList(start) {
   return res;
 }
 
-// "2 lb chicken thighs" -> name "Chicken thighs", amount "2 lb". Plain "milk" stays as is.
+// Splits typed text into item name and amount.
+// If it ends with an item you've used before ("2 half gallons milk"), that's the name and the rest is the amount,
+// kept word for word. Otherwise "2 lb chicken thighs" -> "Chicken thighs" + "2 lb"; plain "milk" has no amount.
+function splitItemText(text) {
+  const t = text.trim().replace(/\s+/g, ' ');
+  const lower = t.toLowerCase();
+  const known = catalogEntries()
+    .filter((e) => lower === e.name.toLowerCase() || lower.endsWith(` ${e.name.toLowerCase()}`))
+    .sort((a, b) => b.name.length - a.name.length)[0];
+  if (known) return { name: known.name, amount: t.slice(0, t.length - known.name.length).trim() };
+  const ing = parseIngredient(t);
+  if (ing?.qty != null && ing.name) {
+    const at = lower.lastIndexOf(ing.name.toLowerCase());
+    return { name: capitalize(ing.name), amount: at > 0 ? t.slice(0, at).trim() : '' };
+  }
+  return { name: capitalize(t), amount: '' };
+}
+
+// The numbers behind an amount like "2 lb" or "1 (14.5 oz) can", so it can add up; null for "a bunch", "2 half gallons".
+function amountMeasure(amount) {
+  if (!amount) return null;
+  const ing = parseIngredient(`${amount} xx`);
+  if (ing?.qty == null || ing.name !== 'xx') return null; // only when the whole amount was understood
+  const m = emptyMeasure();
+  addToMeasure(m, ing, 1);
+  return { m, unit: ing.unit };
+}
+
 export async function addManualItem(text) {
-  const ing = parseIngredient(text.trim());
-  const name = capitalize(ing?.qty != null && ing.name ? ing.name : text.trim());
+  const { name, amount } = splitItemText(text);
+  if (!name) return;
   const key = ingredientKey(name);
-  const measure = ing?.qty != null ? (() => { const m = emptyMeasure(); addToMeasure(m, ing, 1); return m; })() : null;
+  const parsed = amountMeasure(amount);
+  // Remember it, with the amount typed, for next time.
+  await remember([{ name, amount }]);
   const list = getList();
   const existing = list.items.find((i) => !i.checked && i.key === key);
   if (existing) {
-    if (measure && existing.measure) {
-      existing.measure = mergeMeasures(existing.measure, measure);
+    if (parsed && existing.measure) {
+      existing.measure = mergeMeasures(existing.measure, parsed.m);
       existing.amount = formatMeasure(existing.measure);
-    } else if (measure) {
-      existing.amount = [existing.amount, formatMeasure(measure)].filter(Boolean).join(' + ');
+    } else if (amount) {
+      existing.measure = null;
+      existing.amount = [existing.amount, amount].filter(Boolean).join(' + ');
     }
   } else {
     list.items.push({
-      id: uid(), key, name, amount: measure ? formatMeasure(measure) : '', measure,
-      aisle: guessAisle(key, getPrefs().aisleOverrides, ing?.unit), checked: false, recipes: [],
+      id: uid(), key, name, amount: parsed ? formatMeasure(parsed.m) : amount, measure: parsed?.m || null,
+      aisle: guessAisle(key, getPrefs().aisleOverrides, parsed?.unit), checked: false, recipes: [],
     });
   }
   await saveList(list);

@@ -4,7 +4,8 @@ import { esc, normalizeText } from '../util.js';
 import { getPrefs, AISLES } from '../prefs.js';
 import { guessAisle } from '../aisles.js';
 import { ingredientKey } from '../ingredients.js';
-import { openSheet, toast } from '../ui.js';
+import { openSheet, toast, attachSuggest, fillWithAmount } from '../ui.js';
+import { searchCatalog } from '../catalog.js';
 import { pantryItems, amountText, addTextToPantry, updatePantryItem, planDeductions, applyDeductions, formatPantryAmount } from '../pantry.js';
 
 const state = { q: '' };
@@ -14,7 +15,7 @@ export function pantryView(el) {
     <header class="topbar"><h1>Pantry</h1></header>
     <p class="muted small">What you have on hand. Add an amount (“2 cups”, “3 lb”) and the shopping list buys only what's missing; leave it off and it counts as “have it”.</p>
     <form class="inline-form add-item" id="add">
-      <input id="add-name" placeholder="Add what you have, e.g. rice or 2 cans beans" autocomplete="off" enterkeyhint="done">
+      <input id="add-name" placeholder="Add what you have, e.g. rice or 2 cans beans" autocomplete="off" autocorrect="off" enterkeyhint="done">
       <button class="btn primary">Add</button>
     </form>
     <input type="search" id="q" class="field-row" placeholder="Search pantry…" value="${esc(state.q)}" autocomplete="off">
@@ -53,6 +54,12 @@ export function pantryView(el) {
   el.addEventListener('click', (e) => {
     const row = e.target.closest('[data-item]');
     if (row) openItemSheet(row.dataset.item);
+  });
+
+  attachSuggest(el.querySelector('#add-name'), {
+    search: (q) => searchCatalog(q),
+    label: (x) => esc(x.name),
+    onPick: (x) => fillWithAmount(el.querySelector('#add-name'), x.name, ''),
   });
 
   draw();

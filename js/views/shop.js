@@ -4,7 +4,8 @@ import { esc, today, weekStart, addDays, fmtWeek } from '../util.js';
 import { getPrefs, savePrefs, AISLES } from '../prefs.js';
 import { getList, addManualItem, updateListItem, removeListItems, addWeekToList, weekBatches, listResultText } from '../model.js';
 import { ingredientKey } from '../ingredients.js';
-import { openSheet, toast } from '../ui.js';
+import { openSheet, toast, attachSuggest, fillWithAmount } from '../ui.js';
+import { catalogEntries, searchCatalog, frequentItems, aisleOf, remember, updateEntry, forget } from '../catalog.js';
 import { addToPantry } from '../pantry.js';
 
 export function shopView(el) {
@@ -13,24 +14,25 @@ export function shopView(el) {
   el.innerHTML = `
     <header class="topbar"><h1>List</h1><button class="btn-text" id="share">Share</button></header>
     <form class="inline-form add-item" id="add">
-      <input id="add-name" placeholder="Add an item, e.g. milk or 2 lb chicken" autocomplete="off" enterkeyhint="done" list="list-suggest">
+      <input id="add-name" placeholder="Add an item, e.g. milk or 2 lb chicken" autocomplete="off" autocorrect="off" enterkeyhint="done">
       <button class="btn primary">Add</button>
     </form>
-    <datalist id="list-suggest"></datalist>
     <div class="chips scroll-x" id="staples"></div>
-    <button class="btn block" id="add-week">＋ Add this week's meals</button>
+    <div class="grid-2 list-actions"><button class="btn" id="your-items">Your items</button><button class="btn" id="add-week">＋ This week's meals</button></div>
     <div id="list"></div>`;
 
   function draw() {
     const prefs = getPrefs();
     const list = getList();
     const onList = new Set(list.items.filter((i) => !i.checked).map((i) => i.key));
-    el.querySelector('#staples').innerHTML = prefs.staples
-      .filter((s) => !onList.has(ingredientKey(s)))
-      .map((s) => `<button class="chip" data-staple="${esc(s)}">＋ ${esc(s)}</button>`)
+    // Quick picks: staples, then your most-used items. A tap puts it in the box so the amount can be changed first.
+    const staplesKeys = new Set(prefs.staples.map(ingredientKey));
+    const byKey = Object.fromEntries(catalogEntries().map((x) => [x.key, x]));
+    const staples = prefs.staples.filter((x) => !onList.has(ingredientKey(x))).map((x) => byKey[ingredientKey(x)] || { name: x, amount: '' });
+    const freq = frequentItems(8, new Set([...onList, ...staplesKeys]));
+    el.querySelector('#staples').innerHTML = [...staples, ...freq]
+      .map((x) => `<button class="chip" data-pick="${esc(x.name)}" data-amount="${esc(x.amount || '')}">＋ ${esc(x.name)}</button>`)
       .join('');
-    // Suggest things bought before.
-    el.querySelector('#list-suggest').innerHTML = [...new Set(list.items.map((i) => i.name))].map((n) => `<option value="${esc(n)}">`).join('');
 
     const open = list.items.filter((i) => !i.checked);
     const done = list.items.filter((i) => i.checked);
@@ -66,8 +68,9 @@ export function shopView(el) {
     }
     const ed = t.closest('[data-edit]');
     if (ed) return openItemSheet(ed.dataset.edit);
-    const st = t.closest('[data-staple]');
-    if (st) return addManualItem(st.dataset.staple);
+    const pick = t.closest('[data-pick]');
+    if (pick) return fillWithAmount(el.querySelector('#add-name'), pick.dataset.pick, pick.dataset.amount);
+    if (t.id === 'your-items') return openYourItems();
     if (t.id === 'clear') return removeListItems(getList().items.filter((i) => i.checked).map((i) => i.id));
     if (t.id === 'to-pantry') return openMoveToPantry();
     if (t.id === 'add-week') return openAddWeek();
@@ -88,8 +91,67 @@ export function shopView(el) {
     inp.focus();
   });
 
+  attachSuggest(el.querySelector('#add-name'), {
+    search: (q) => searchCatalog(q),
+    label: (x) => `${esc(x.name)}${x.amount ? ` <small>${esc(x.amount)}</small>` : ''}`,
+    onPick: (x) => fillWithAmount(el.querySelector('#add-name'), x.name, x.amount),
+  });
+
   draw();
-  return { refresh: (store) => store === 'shopping' && draw() };
+  return { refresh: (store) => (store === 'shopping' || store === 'settings') && draw() };
+}
+
+// Every item you've ever added, grouped by aisle. Each has its own amount box: change it, then Add.
+// Edit mode renames items, sets their usual amount, or removes them from the catalog.
+function openYourItems() {
+  let q = '';
+  let editing = false;
+  const sheet = openSheet(`
+    <div class="section-head sheet-head"><h2>Your items</h2><button class="btn-text small" id="yi-edit">Edit</button></div>
+    <input type="search" id="yi-q" placeholder="Search your items…" autocomplete="off">
+    <div id="yi-list" class="yi-list"></div>`);
+  const b = sheet.el;
+  const draw = () => {
+    const onList = new Set(getList().items.filter((i) => !i.checked).map((i) => i.key));
+    const n = q.trim().toLowerCase();
+    const items = catalogEntries().filter((x) => !n || x.name.toLowerCase().includes(n)).sort((a, c) => a.name.localeCompare(c.name));
+    const groups = AISLES.map((a) => [a, items.filter((x) => aisleOf(x) === a)]).filter(([, g]) => g.length);
+    b.querySelector('#yi-edit').textContent = editing ? 'Done' : 'Edit';
+    b.querySelector('#yi-list').innerHTML = groups.length
+      ? groups.map(([a, g]) => `<section class="aisle"><h3>${esc(a)}</h3>${g.map((x) => `
+          <div class="yi-row" data-key="${esc(x.key)}">
+            ${editing
+              ? `<input class="yi-name" value="${esc(x.name)}" aria-label="Name" autocomplete="off">`
+              : `<span class="yi-label">${esc(x.name)}${onList.has(x.key) ? ' <small class="muted">· on list</small>' : ''}</span>`}
+            <input class="yi-amt" value="${esc(x.amount || '')}" placeholder="amount" aria-label="Amount" autocomplete="off">
+            ${editing
+              ? '<button type="button" class="btn-text small" data-save>Save</button><button type="button" class="row-x" data-forget aria-label="Remove">✕</button>'
+              : '<button type="button" class="btn small-btn" data-add>Add</button>'}
+          </div>`).join('')}</section>`).join('')
+      : '<p class="muted center pad">Nothing yet. Items you add to the list or pantry, and recipe ingredients, show up here.</p>';
+  };
+  b.querySelector('#yi-q').addEventListener('input', (e) => { q = e.target.value; draw(); });
+  b.addEventListener('click', async (e) => {
+    if (e.target.id === 'yi-edit') { editing = !editing; return draw(); }
+    const row = e.target.closest('.yi-row');
+    if (!row) return;
+    const key = row.dataset.key;
+    const amount = row.querySelector('.yi-amt').value.trim();
+    if (e.target.closest('[data-add]')) {
+      const x = catalogEntries().find((c) => c.key === key);
+      await addManualItem(amount ? `${amount} ${x.name}` : x.name);
+      toast(`Added ${x.name}${amount ? ` (${amount})` : ''}`);
+      draw();
+    } else if (e.target.closest('[data-save]')) {
+      await updateEntry(key, { name: row.querySelector('.yi-name').value || key, amount });
+      toast('Saved');
+      draw();
+    } else if (e.target.closest('[data-forget]')) {
+      await forget(key);
+      draw();
+    }
+  });
+  draw();
 }
 
 // Checked items go into the pantry at the amount actually bought (remembered for next time), then leave the list.

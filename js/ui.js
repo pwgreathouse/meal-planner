@@ -69,3 +69,37 @@ export function setStepper(root, name, v) {
 
 export const emptyState = (title, body, actions = '') =>
   `<div class="empty"><h2>${esc(title)}</h2><p>${body}</p>${actions}</div>`;
+
+// Suggestions under a text box while typing. search(q) returns entries; label(e) is shown; onPick(e) runs on tap.
+export function attachSuggest(input, { search, label, onPick }) {
+  const box = document.createElement('div');
+  box.className = 'suggest';
+  box.hidden = true;
+  input.closest('form, div').insertAdjacentElement('afterend', box);
+  let shown = [];
+  const draw = () => {
+    shown = search(input.value);
+    box.innerHTML = shown.map((e, i) => `<button type="button" data-i="${i}">${label(e)}</button>`).join('');
+    box.hidden = !shown.length;
+  };
+  input.addEventListener('input', draw);
+  input.addEventListener('focus', () => input.value && draw());
+  // Delay hiding so a tap on a suggestion still lands.
+  input.addEventListener('blur', () => setTimeout(() => (box.hidden = true), 200));
+  box.addEventListener('pointerdown', (e) => e.preventDefault()); // keep the keyboard up
+  box.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-i]');
+    if (!b) return;
+    box.hidden = true;
+    onPick(shown[+b.dataset.i]);
+  });
+  return { hide: () => (box.hidden = true) };
+}
+
+// Puts "amount name" in a box with the amount selected, so typing replaces it.
+export function fillWithAmount(input, name, amount) {
+  input.value = amount ? `${amount} ${name}` : name;
+  input.focus();
+  if (amount) input.setSelectionRange(0, amount.length);
+  else input.setSelectionRange(input.value.length, input.value.length);
+}

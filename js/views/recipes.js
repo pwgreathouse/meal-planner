@@ -7,6 +7,7 @@ import { parseIngredient, formatIngredient, ingredientText } from '../ingredient
 import { formatQty, UNITS } from '../units.js';
 import { toast, stepperHtml, wireSteppers, emptyState, openSheet } from '../ui.js';
 import { openAddToPlan } from './plan.js';
+import { remember } from '../catalog.js';
 
 const listState = { q: '', cat: 'All', sort: 'az' };
 
@@ -379,6 +380,7 @@ export function editView(el, id) {
     backHref: existing ? `#/recipe/${id}` : '#/recipes',
     onSave: async (r) => {
       await db.put('recipes', r);
+      await remember(r.ingredients.filter((i) => !i.header && i.name).map((i) => ({ name: i.name })));
       toast('Saved');
       location.hash = `#/recipe/${r.id}`;
     },
