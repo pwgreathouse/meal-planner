@@ -7,3 +7,4 @@ node_modules/
 worker/.helper-code.txt
 test-pages/
 .firebase/
+backups/
