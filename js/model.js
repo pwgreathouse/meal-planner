@@ -5,6 +5,7 @@ import { ingredientKey, parseIngredient } from './ingredients.js';
 import { unitDim, toBase, friendlyVolume, friendlyWeight, formatAmount, unitLabel, formatQty } from './units.js';
 import { guessAisle } from './aisles.js';
 import { getPrefs } from './prefs.js';
+import { subtractPantry } from './pantry.js';
 
 // ---------- Recipes ----------
 
@@ -195,12 +196,15 @@ function combineIngredients(batches) {
 
 // Adds recipes' ingredients to the list. Things in the pantry are skipped; items already on the list add up.
 export async function addRecipesToList(batches) {
-  const have = new Set(db.all('pantry').map((p) => p.key || ingredientKey(p.name)));
   const list = getList();
   let added = 0, merged = 0;
   const skipped = [];
   for (const g of combineIngredients(batches)) {
-    if (have.has(g.key)) { skipped.push(g.name.toLowerCase()); continue; }
+    // Buy only what the pantry doesn't already cover.
+    const { need, have, covered } = subtractPantry(g.key, g.measure);
+    if (covered) { skipped.push(g.name.toLowerCase()); continue; }
+    g.measure = need;
+    g.have = have;
     const existing = list.items.find((i) => !i.checked && i.key === g.key);
     if (existing) {
       if (existing.measure) {
@@ -212,7 +216,7 @@ export async function addRecipesToList(batches) {
       existing.recipes = [...new Set([...(existing.recipes || []), ...g.recipes])];
       merged++;
     } else {
-      list.items.push({ id: uid(), key: g.key, name: g.name, amount: formatMeasure(g.measure), measure: g.measure, aisle: g.aisle, checked: false, recipes: g.recipes });
+      list.items.push({ id: uid(), key: g.key, name: g.name, amount: formatMeasure(g.measure), measure: g.measure, have: g.have, aisle: g.aisle, checked: false, recipes: g.recipes });
       added++;
     }
   }
@@ -224,7 +228,7 @@ export function listResultText({ added, merged, skipped }) {
   const parts = [];
   if (added) parts.push(`Added ${added} item${added === 1 ? '' : 's'}`);
   if (merged) parts.push(`${merged} combined with what was on the list`);
-  if (skipped.length) parts.push(`skipped ${skipped.length} you have (${skipped.slice(0, 4).join(', ')}${skipped.length > 4 ? '…' : ''})`);
+  if (skipped.length) parts.push(`skipped ${skipped.length} the pantry covers (${skipped.slice(0, 4).join(', ')}${skipped.length > 4 ? '…' : ''})`);
   return parts.join(' · ') || 'Nothing new to add';
 }
 

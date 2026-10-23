@@ -325,3 +325,10 @@ details.panel summary h2 { display: inline; color: var(--text); }
 @media (min-width: 720px) {
   .days { grid-template-columns: 1fr 1fr; }
 }
+
+/* ---------- Recipe as a shortcut to the real recipe ---------- */
+.open-recipe { margin: 10px 0 4px; }
+.open-recipe small { font-weight: 400; opacity: .8; }
+.recipe-note { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin: 10px 0 0; }
+.saved-steps { margin-top: 18px; }
+.saved-steps summary { cursor: pointer; color: var(--accent); font-weight: 600; }

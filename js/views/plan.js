@@ -4,6 +4,7 @@ import { esc, today, weekStart, weekDates, addDays, fmtDay, fmtWeek } from '../u
 import { getPrefs, MEALS } from '../prefs.js';
 import { getWeek, addRecipeEntry, addSkip, updateEntry, removeEntry, setCovers, leftoversOf, searchRecipes, getList, addWeekToList, listResultText } from '../model.js';
 import { openSheet, toast, stepperHtml, wireSteppers, stepperValue, setStepper } from '../ui.js';
+import { openDeductSheet } from './pantry.js';
 
 const SKIP_LABELS = ['Eating out', 'Leftovers', 'Not needed', 'Takeout'];
 const mealLabel = (k) => MEALS.find((m) => m.key === k)?.label || k;
@@ -339,6 +340,10 @@ function openEntrySheet(start, entryId) {
     if (made && !e.made && r) {
       r.lastMade = e.date;
       await db.put('recipes', r);
+      // Take what was used out of the pantry, after a quick check.
+      const servings = stepperValue(body, 'servings');
+      setTimeout(() => openDeductSheet(r, servings) || toast('Saved'), 250);
+      return;
     }
     toast('Saved');
   };

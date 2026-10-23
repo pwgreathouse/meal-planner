@@ -10,6 +10,14 @@ import { openAddToPlan } from './plan.js';
 
 const listState = { q: '', cat: 'All', sort: 'az' };
 
+const hostOf = (url) => {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+};
+
 function recipeMeta(r) {
   const time = (r.prepMin || 0) + (r.cookMin || 0);
   return [r.category, time ? fmtMinutes(time) : '', r.ingredients?.length ? `${r.ingredients.filter((i) => !i.header).length} ingredients` : '']
@@ -113,18 +121,18 @@ export function detailView(el, id) {
       <div class="muted">${esc(recipeMeta(r))}</div>
       <div class="stars" id="stars">${[1, 2, 3, 4, 5].map((n) => `<button data-star="${n}" class="${n <= (r.rating || 0) ? 'on' : ''}" aria-label="${n} stars">★</button>`).join('')}</div>
       ${r.tags?.length ? `<div class="tags">${r.tags.map((t) => `<span class="tag">${esc(t)}</span>`).join('')}</div>` : ''}
+      ${r.sourceUrl ? `<a class="btn primary block open-recipe" href="${esc(r.sourceUrl)}" target="_blank" rel="noopener">Open recipe ↗ <small>${esc(hostOf(r.sourceUrl))}</small></a>` : ''}
+      ${r.notes ? `<p class="notes recipe-note">${esc(r.notes)}</p>` : ''}
       <div class="action-row">
-        <button class="btn primary" id="plan">Add to plan</button>
+        <button class="btn ${r.sourceUrl ? '' : 'primary'}" id="plan">Add to plan</button>
         ${r.ingredients?.length ? '<button class="btn" id="to-list">Add to list</button>' : ''}
-        ${r.sourceUrl ? `<a class="btn" href="${esc(r.sourceUrl)}" target="_blank" rel="noopener">Source ↗</a>` : ''}
       </div>
       ${r.lastMade ? `<p class="muted small">Last made ${esc(fmtDay(r.lastMade, { month: 'short', day: 'numeric', year: 'numeric' }))}</p>` : ''}
       <section>
         <div class="section-head"><h2>Ingredients</h2>${stepperHtml('servings', servings, { label: 'Servings', max: 200 })}</div>
         <ul class="ingredients" id="ings"></ul>
       </section>
-      ${r.steps?.length ? `<section><h2>Steps</h2><ol class="steps">${r.steps.map((s) => (/:$/.test(s) ? `<li class="step-head">${esc(s)}</li>` : `<li>${esc(s)}</li>`)).join('')}</ol></section>` : ''}
-      ${r.notes ? `<section><h2>Notes</h2><p class="notes">${esc(r.notes)}</p></section>` : ''}
+      ${r.steps?.length ? `<details class="saved-steps"><summary>Saved steps (${r.steps.length})</summary><ol class="steps">${r.steps.map((s) => (/:$/.test(s) ? `<li class="step-head">${esc(s)}</li>` : `<li>${esc(s)}</li>`)).join('')}</ol></details>` : ''}
     </article>`;
 
   function drawIngs() {
@@ -195,7 +203,11 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
     <header class="topbar"><a class="back" href="${backHref}">‹ Back</a><h1 class="topbar-title">${esc(heading)}</h1><button class="btn-text strong" id="save" form="rform">Save</button></header>
     ${aboveForm}
     <form id="rform" class="form" autocomplete="off">
-      <label>Title<input name="title" required value="${esc(recipe.title)}" placeholder="e.g. Sheet-pan chicken fajitas"></label>
+      <label>Name<input name="title" required value="${esc(recipe.title)}" placeholder="e.g. Sheet-pan chicken fajitas"></label>
+      <label>Recipe link <small class="muted">where the full recipe lives</small>
+        <input name="sourceUrl" type="url" inputmode="url" value="${esc(recipe.sourceUrl || '')}" placeholder="https://…" autocapitalize="off"></label>
+      <label>Note <small class="muted">or where to find it, e.g. “Mom's red binder, p. 12”</small>
+        <textarea name="notes" rows="2" placeholder="Where it's from, tweaks, what the family thought…">${esc(recipe.notes || '')}</textarea></label>
       <div class="grid-2">
         <label>Category<select name="category">${cats.map((c) => `<option ${c === recipe.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
         <label>Servings<input name="servings" type="number" inputmode="numeric" min="1" value="${recipe.servings || ''}" placeholder="4"></label>
@@ -211,21 +223,11 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
         </div>
         <datalist id="ing-names">${knownIngredientNames().map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
       </fieldset>
-      <fieldset class="rows-field">
-        <legend>Steps</legend>
-        <ol id="step-rows" class="step-rows"></ol>
-        <div class="row-actions">
-          <button type="button" class="btn" id="add-step">＋ Step</button>
-          <button type="button" class="btn-text small" id="paste-steps">Paste a list</button>
-        </div>
-      </fieldset>
-      <label>Notes<textarea name="notes" rows="3" placeholder="Swaps, tips, what the family thought…">${esc(recipe.notes || '')}</textarea></label>
-      <details class="more-details" ${recipe.tags?.length || recipe.sourceUrl ? 'open' : ''}>
+      <details class="more-details" ${recipe.tags?.length ? 'open' : ''}>
         <summary>More details</summary>
         <label>Tags <small class="muted">comma separated</small>
           <input name="tags" list="tag-list" value="${esc((recipe.tags || []).join(', '))}" placeholder="quick, kid-friendly, freezer">
           <datalist id="tag-list">${allTags().map((t) => `<option value="${esc(t)}">`).join('')}</datalist></label>
-        <label>Source link<input name="sourceUrl" type="url" inputmode="url" value="${esc(recipe.sourceUrl || '')}" placeholder="https://…"></label>
         <div class="grid-2">
           <label>Prep (min)<input name="prepMin" type="number" inputmode="numeric" min="0" value="${recipe.prepMin || ''}"></label>
           <label>Cook (min)<input name="cookMin" type="number" inputmode="numeric" min="0" value="${recipe.cookMin || ''}"></label>
@@ -239,7 +241,6 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
 
   const form = el.querySelector('#rform');
   const ingRows = el.querySelector('#ing-rows');
-  const stepRows = el.querySelector('#step-rows');
 
   // ----- ingredient rows -----
   const unitOptions = (sel) => `<option value="">—</option>${UNIT_CHOICES.map((k) => `<option value="${k}" ${k === sel ? 'selected' : ''}>${esc(UNITS[k].one)}</option>`).join('')}`;
@@ -268,30 +269,12 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
   }
   (recipe.ingredients?.length ? recipe.ingredients : [{}, {}, {}]).forEach((i) => addIngRow(i));
 
-  // ----- step rows -----
-  function addStepRow(text = '', focus = false) {
-    const li = document.createElement('li');
-    li.className = 'step-row';
-    li.innerHTML = `<textarea class="s-text" rows="2" placeholder="What to do…" enterkeyhint="next">${esc(text)}</textarea>
-      <div class="step-tools"><button type="button" class="row-up" aria-label="Move up">↑</button><button type="button" class="row-down" aria-label="Move down">↓</button><button type="button" class="row-x" aria-label="Remove">✕</button></div>`;
-    stepRows.appendChild(li);
-    autoGrow(li.querySelector('textarea'));
-    if (focus) li.querySelector('textarea').focus();
-  }
-  (recipe.steps?.length ? recipe.steps : ['', '']).forEach((s) => addStepRow(s));
-
   el.querySelector('#add-ing').onclick = () => addIngRow({}, true);
   el.querySelector('#add-sec').onclick = () => addIngRow({ header: true }, true);
-  el.querySelector('#add-step').onclick = () => addStepRow('', true);
   el.querySelector('#paste-ing').onclick = () => pasteList('Paste ingredients', 'One ingredient per line, e.g. “2 cups chicken broth”.', (lines) => {
     clearEmpty(ingRows, '.i-name, .i-head');
     lines.forEach((l) => addIngRow(parseIngredient(l) || {}));
   });
-  el.querySelector('#paste-steps').onclick = () => pasteList('Paste steps', 'One step per line.', (lines) => {
-    clearEmpty(stepRows, '.s-text');
-    lines.forEach((l) => addStepRow(l.replace(/^(?:step\s*\d+\s*[:.)-]?|\d+\s*[.)])\s*/i, '')));
-  });
-
   // Enter in an ingredient name jumps to a fresh row, so a list can be typed quickly.
   ingRows.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || !e.target.matches('.i-name, .i-head')) return;
@@ -302,13 +285,12 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
     else addIngRow({}, true);
   });
   form.addEventListener('click', (e) => {
-    const row = e.target.closest('.ing-row, .step-row');
+    const row = e.target.closest('.ing-row');
     if (!row) return;
     if (e.target.closest('.row-x')) row.remove();
     else if (e.target.closest('.row-up') && row.previousElementSibling) row.parentNode.insertBefore(row, row.previousElementSibling);
     else if (e.target.closest('.row-down') && row.nextElementSibling) row.parentNode.insertBefore(row.nextElementSibling, row);
   });
-  stepRows.addEventListener('input', (e) => e.target.matches('textarea') && autoGrow(e.target));
 
   const readIngredients = () =>
     [...ingRows.children].map((row) => {
@@ -333,7 +315,6 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
       prepMin: num('prepMin'),
       cookMin: num('cookMin'),
       ingredients: readIngredients(),
-      steps: [...stepRows.querySelectorAll('.s-text')].map((t) => t.value.trim()).filter(Boolean),
       tags: [...new Set(String(f.get('tags')).split(',').map((t) => t.trim().toLowerCase()).filter(Boolean))],
       notes: f.get('notes').trim(),
       sourceUrl: f.get('sourceUrl').trim(),

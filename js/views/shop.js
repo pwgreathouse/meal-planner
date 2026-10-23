@@ -5,6 +5,7 @@ import { getPrefs, savePrefs, AISLES } from '../prefs.js';
 import { getList, addManualItem, updateListItem, removeListItems, addWeekToList, weekBatches, listResultText } from '../model.js';
 import { ingredientKey } from '../ingredients.js';
 import { openSheet, toast } from '../ui.js';
+import { addToPantry } from '../pantry.js';
 
 export function shopView(el) {
   let showRecipes = false;
@@ -42,14 +43,16 @@ export function shopView(el) {
       <div class="list-meta"><span>${open.length} to get${done.length ? ` · ${done.length} done` : ''}</span>
         <label class="small"><input type="checkbox" id="src" ${showRecipes ? 'checked' : ''}> show recipes</label></div>
       ${groups.map(([a, items]) => `<section class="aisle"><h3>${esc(a)}</h3>${items.map(itemHtml).join('')}</section>`).join('')}
-      ${done.length ? `<section class="aisle done"><h3>Done <button class="btn-text small" id="clear">Clear ${done.length}</button></h3>${done.map(itemHtml).join('')}</section>` : ''}`;
+      ${done.length ? `<section class="aisle done"><h3>In the cart
+          <span><button class="btn-text small strong" id="to-pantry">Move ${done.length} to pantry</button><button class="btn-text small" id="clear">Clear</button></span></h3>
+          ${done.map(itemHtml).join('')}</section>` : ''}`;
   }
 
   function itemHtml(i) {
     return `<div class="item ${i.checked ? 'checked' : ''}">
       <button class="check-btn" data-toggle="${i.id}" aria-label="${i.checked ? 'Uncheck' : 'Check'} ${esc(i.name)}"></button>
       <button class="item-body" data-edit="${i.id}">
-        <span class="item-name">${esc(i.name)}</span>${i.amount ? `<span class="item-amt">${esc(i.amount)}</span>` : ''}
+        <span class="item-name">${esc(i.name)}</span>${i.amount ? `<span class="item-amt">${esc(i.amount)}${i.have ? ` <small>(have ${esc(i.have)})</small>` : ''}</span>` : ''}
         ${showRecipes && i.recipes?.length ? `<span class="item-src">${esc(i.recipes.join(', '))}</span>` : ''}
       </button></div>`;
   }
@@ -66,6 +69,7 @@ export function shopView(el) {
     const st = t.closest('[data-staple]');
     if (st) return addManualItem(st.dataset.staple);
     if (t.id === 'clear') return removeListItems(getList().items.filter((i) => i.checked).map((i) => i.id));
+    if (t.id === 'to-pantry') return openMoveToPantry();
     if (t.id === 'add-week') return openAddWeek();
     if (t.id === 'src') {
       showRecipes = t.checked;
@@ -86,6 +90,40 @@ export function shopView(el) {
 
   draw();
   return { refresh: (store) => store === 'shopping' && draw() };
+}
+
+// Checked items go into the pantry at the amount actually bought (remembered for next time), then leave the list.
+function openMoveToPantry() {
+  const prefs = getPrefs();
+  const items = getList().items.filter((i) => i.checked);
+  const sheet = openSheet(`
+    <h2>Move to pantry</h2>
+    <p class="muted small">Change amounts to what you bought, e.g. “1 qt” of broth even if you needed 2 cups. Clear an amount to just mark it as “have it”.</p>
+    <form id="mp" class="put-away">
+      ${items.map((i) => `<div class="pa-row" data-id="${i.id}">
+        <label class="pa-check"><input type="checkbox" name="on" checked> <b>${esc(i.name)}</b></label>
+        <div class="pa-fields"><input name="amount" value="${esc(prefs.purchaseSizes?.[i.key] || i.amount || '')}" placeholder="amount (optional)" autocomplete="off"></div>
+      </div>`).join('')}
+      <button class="btn primary block">Move to pantry</button>
+      <p class="muted small center">Unticked items are just cleared from the list.</p>
+    </form>`);
+  sheet.el.querySelector('#mp').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const sizes = { ...(getPrefs().purchaseSizes || {}) };
+    let n = 0;
+    for (const row of sheet.el.querySelectorAll('.pa-row')) {
+      const it = items.find((x) => x.id === row.dataset.id);
+      if (!row.querySelector('[name=on]').checked) continue;
+      const amount = row.querySelector('[name=amount]').value.trim();
+      await addToPantry(it.name, amount);
+      if (amount && amount !== it.amount) sizes[it.key] = amount;
+      n++;
+    }
+    await savePrefs({ purchaseSizes: sizes });
+    await removeListItems(items.map((i) => i.id));
+    sheet.close();
+    toast(`${n} item${n === 1 ? '' : 's'} moved to the pantry`);
+  });
 }
 
 // Pick which week's meals to add (this week or next).
