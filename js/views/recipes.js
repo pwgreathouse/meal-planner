@@ -211,7 +211,7 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
         <textarea name="notes" rows="2" placeholder="Where it's from, tweaks, what the family thought…">${esc(recipe.notes || '')}</textarea></label>
       <div class="grid-2">
         <label>Category<select name="category">${cats.map((c) => `<option ${c === recipe.category ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
-        <label>Servings<input name="servings" type="number" inputmode="numeric" min="1" value="${recipe.servings || ''}" placeholder="4"></label>
+        <label>Makes (servings)<input name="servings" type="number" inputmode="numeric" min="1" value="${recipe.servings || ''}" placeholder="4"></label>
       </div>
       <fieldset class="rows-field">
         <legend>Ingredients</legend>

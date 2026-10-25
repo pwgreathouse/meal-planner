@@ -17,8 +17,8 @@ export function moreView(el) {
       <section class="panel" id="account"></section>
 
       <section class="panel">
-        <h2>Default servings</h2>
-        <p class="muted small">Used when you add a recipe to the plan. You can change it each time.</p>
+        <h2>People eating each meal</h2>
+        <p class="muted small">How many people eat breakfast, lunch and dinner. Each leftover day you pick adds this many servings. A recipe's own servings is how many one batch makes.</p>
         ${MEALS.map((m) => `<div class="field-row">${stepperHtml(m.key, p.servings[m.key], { label: m.label, max: 20 })}</div>`).join('')}
       </section>
 

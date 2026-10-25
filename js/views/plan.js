@@ -5,6 +5,7 @@ import { getPrefs, MEALS } from '../prefs.js';
 import { getWeek, addRecipeEntry, addSkip, updateEntry, removeEntry, setCovers, leftoversOf, searchRecipes, getList, addWeekToList, listResultText } from '../model.js';
 import { openSheet, toast, stepperHtml, wireSteppers, stepperValue, setStepper } from '../ui.js';
 import { openDeductSheet } from './pantry.js';
+import { formatQty } from '../units.js';
 
 const SKIP_LABELS = ['Eating out', 'Leftovers', 'Not needed', 'Takeout'];
 const mealLabel = (k) => MEALS.find((m) => m.key === k)?.label || k;
@@ -170,7 +171,7 @@ export function openAddToPlan({ start, date, meal, recipeId, servings: presetSer
       <div class="chips wrap" id="covers"></div>
       <div class="cover-meal" id="cover-meal-wrap" hidden>as
         <select id="cover-meal">${MEALS.map((m) => `<option value="${m.key}">${m.label.toLowerCase()}</option>`).join('')}</select></div>
-      <div class="field-row">${stepperHtml('servings', servings, { label: 'Servings to make', max: 200 })}</div>
+      <div class="field-row">${stepperHtml('servings', servings, { label: 'Servings needed', max: 200 })}</div>
       <p class="muted small" id="scale-note"></p>
       <button class="btn primary block" id="add-save">Add to plan</button>`;
 
@@ -190,9 +191,15 @@ export function openAddToPlan({ start, date, meal, recipeId, servings: presetSer
         servings = autoServings();
         setStepper(body, 'servings', servings);
       }
+      // Spell out the math: who eats it, how many leftover meals, and how many batches that means.
       const base = chosen.servings || servings;
+      const ppl = (n) => `${n} ${n === 1 ? 'person' : 'people'}`;
+      const how = touched
+        ? `${servings} servings`
+        : `${ppl(per[slot])}${covers.length ? ` + ${covers.length} leftover ${covers.length === 1 ? 'meal' : 'meals'}${per[coverMeal] !== 1 ? ` × ${per[coverMeal]}` : ''}` : ''} = ${servings} servings`;
+      const batches = servings / base;
       body.querySelector('#scale-note').textContent =
-        servings === base ? `Recipe makes ${base}.` : `Recipe makes ${base} — ingredients will scale ×${+(servings / base).toFixed(2)}.`;
+        `${how}. Recipe makes ${base}, so that's ${batches === 1 ? '1 batch' : `${formatQty(batches)} batches (ingredients ×${+batches.toFixed(2)})`}.`;
     };
 
     body.querySelector('#cover-meal').value = coverMeal;
