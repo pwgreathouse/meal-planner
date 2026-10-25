@@ -40,6 +40,10 @@ Plain HTML/CSS/JavaScript with no build step. Free to run: Firebase (Spark plan)
 ## Deploying
 
 ```
-.\node_modules\.bin\firebase.cmd deploy --only hosting,firestore:rules
+powershell -ExecutionPolicy Bypass -File toolsdeploy.ps1
 ```
+This stamps a new version into `version.json`, `js/version.js` and the service worker cache name, then deploys hosting.
+Open copies of the app check `version.json` whenever they come back on screen and refresh themselves (or offer to, mid-edit).
+Database rules: `.
+ode_modules.binirebase.cmd deploy --only firestore:rules`.
 Worker (from `worker/`): `npx.cmd wrangler deploy`. Its access code is a Worker secret (`APP_TOKEN`), not in this repo.

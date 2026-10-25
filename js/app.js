@@ -7,6 +7,7 @@ import { addView, reviewView } from './views/add.js';
 import { moreView } from './views/more.js';
 import { startSync } from './cloud.js';
 import { pantryView } from './views/pantry.js';
+import { APP_VERSION } from './version.js';
 
 const D = '(\\d{4}-\\d{2}-\\d{2})';
 const ROUTES = [
@@ -74,3 +75,35 @@ const NEW_HOME = 'https://meal-planner-pwg.web.app/';
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 })();
+
+// ---------- Staying up to date ----------
+// iPhone home-screen apps usually resume from memory instead of restarting, so they'd keep running old code.
+// Whenever the app comes back to the screen, check the published version and refresh if it's newer.
+let updateBarShown = false;
+
+async function checkForUpdate() {
+  if (location.hostname === 'localhost' || !navigator.onLine) return;
+  let latest;
+  try {
+    latest = (await (await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' })).json()).version;
+  } catch {
+    return;
+  }
+  if (!latest || latest === APP_VERSION) return;
+  navigator.serviceWorker?.getRegistration?.().then((r) => r?.update()).catch(() => {});
+  // Don't pull the rug out mid-edit: refresh now only if nothing is being typed or edited.
+  const busy = document.querySelector('.sheet-wrap') || /\/edit$|\/new$|^#\/inbox\//.test(location.hash) ||
+    ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
+  if (!busy) return location.reload();
+  if (updateBarShown) return;
+  updateBarShown = true;
+  const bar = document.createElement('button');
+  bar.className = 'update-bar';
+  bar.textContent = 'Update ready, tap to refresh';
+  bar.onclick = () => location.reload();
+  document.body.appendChild(bar);
+}
+
+document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && checkForUpdate());
+window.addEventListener('pageshow', (e) => e.persisted && checkForUpdate());
+checkForUpdate();

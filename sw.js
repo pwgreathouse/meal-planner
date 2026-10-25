@@ -1,9 +1,9 @@
-﻿// Offline support: network first (so updates show up right away), cached copy when offline.
-const CACHE = 'meal-planner-v15';
+// Offline support: network first (so updates show up right away), cached copy when offline.
+const CACHE = 'meal-planner-v2026.10.25-1340';
 const SHELL = [
   './', './index.html', './css/app.css', './manifest.webmanifest', './icons/icon.svg',
   './js/app.js', './js/db.js', './js/util.js', './js/prefs.js', './js/units.js', './js/ingredients.js',
-  './js/aisles.js', './js/parser.js', './js/cloud.js', './js/sync.js', './js/pantry.js', './js/views/pantry.js', './js/model.js', './js/ui.js', './js/catalog.js',
+  './js/aisles.js', './js/parser.js', './js/cloud.js', './js/sync.js', './js/pantry.js', './js/views/pantry.js', './js/model.js', './js/ui.js', './js/catalog.js', './js/version.js',
   './js/views/recipes.js', './js/views/plan.js', './js/views/shop.js', './js/views/add.js', './js/views/more.js',
 ];
 

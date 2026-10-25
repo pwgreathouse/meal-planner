@@ -4,6 +4,7 @@ import { esc } from '../util.js';
 import { getPrefs, savePrefs, MEALS } from '../prefs.js';
 import { toast, stepperHtml, wireSteppers } from '../ui.js';
 import { onCloudStatus, startSync, signIn, signOut } from '../cloud.js';
+import { APP_VERSION } from '../version.js';
 
 const DEFAULT_HELPER = 'https://recipe-helper.pwgreathouse.workers.dev';
 const lines = (v) => String(v || '').split('\n').map((s) => s.trim()).filter(Boolean);
@@ -55,6 +56,7 @@ export function moreView(el) {
         <p class="muted small">${counts.recipes} recipes${counts.inbox ? `, ${counts.inbox} to review` : ''}. When you're signed in, everything is backed up automatically. A backup file is an extra copy you can keep anywhere.</p>
         <div class="action-row"><button class="btn" id="export">Export backup</button><label class="btn file-btn">Restore…<input type="file" id="import" accept="application/json,.json" hidden></label></div>
       </section>
+      <p class="muted small center">App version ${esc(APP_VERSION)}</p>
     </div>`;
 
   const account = el.querySelector('#account');
