@@ -37,7 +37,21 @@ Plain HTML/CSS/JavaScript with no build step. Free to run: Firebase (Spark plan)
 | `worker/` | Cloudflare Worker that fetches recipe pages for link import |
 | `tools/serve.ps1` | Local preview server on Windows |
 
-## Deploying
+## Editing from anywhere (phone, any computer)
+
+Every change pushed to `main` publishes automatically (GitHub Actions → `.github/workflows/deploy.yml`), and open copies of the app refresh themselves.
+
+1. Open the Claude app → **Code**, or go to **claude.ai/code**.
+2. Start a session on the **pwgreathouse/meal-planner** repository.
+3. Describe the change. Ask Claude to commit and push it to `main`.
+4. About a minute later the app updates. Progress: the repository's **Actions** tab on GitHub.
+
+Notes for whoever edits this code:
+- Plain HTML/CSS/JS, no build step. Data lives in the user's Firestore (`users/{uid}/…`); never change stored data shapes without keeping old records working.
+- Test in a browser at phone width (375px) before pushing; the app is used as an iPhone home-screen app.
+- The link-import helper (`worker/`) is not auto-published; it rarely changes.
+
+## Deploying by hand (from this PC)
 
 ```
 powershell -ExecutionPolicy Bypass -File tools\deploy.ps1

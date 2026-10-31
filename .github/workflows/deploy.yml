@@ -1,0 +1,38 @@
+# Publishes the app to Firebase Hosting whenever a change lands on main,
+# so it can be edited from anywhere (e.g. Claude Code on the web or phone) with no computer involved.
+name: Publish app
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'worker/**'
+      - 'README.md'
+      - 'tools/**'
+  workflow_dispatch:
+
+concurrency:
+  group: publish
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Stamp a fresh version so open copies of the app notice the update and refresh themselves.
+      - name: Stamp version
+        run: |
+          v="$(date -u +%Y.%m.%d-%H%M)"
+          printf '{ "version": "%s" }\n' "$v" > version.json
+          sed -i "s/APP_VERSION = '[^']*'/APP_VERSION = '$v'/" js/version.js
+          sed -i "s/meal-planner-v[^']*'/meal-planner-v$v'/" sw.js
+          echo "Version $v"
+
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: meal-planner-pwg
+          channelId: live
