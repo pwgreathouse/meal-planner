@@ -219,7 +219,7 @@ function openItemSheet(id) {
     <h2>Edit item</h2>
     <form class="form" id="f">
       <label>Item<input name="name" value="${esc(item.name)}"></label>
-      <label>Amount<input name="amount" value="${esc(item.amount || '')}" placeholder="e.g. 2 lb"></label>
+      <label>Amount<input name="amount" value="${esc(item.amount || '')}" placeholder="e.g. 2 lb, 1/2 gallon"></label>
       <label>Aisle<select name="aisle">${AISLES.map((a) => `<option ${a === item.aisle ? 'selected' : ''}>${esc(a)}</option>`).join('')}</select></label>
       ${item.recipes?.length ? `<p class="muted small">For: ${esc(item.recipes.join(', '))}</p>` : ''}
       <div class="action-row"><button class="btn primary">Save</button><button type="button" class="btn danger" id="del">Remove</button></div>

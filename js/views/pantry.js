@@ -13,7 +13,7 @@ const state = { q: '' };
 export function pantryView(el) {
   el.innerHTML = `
     <header class="topbar"><h1>Pantry</h1></header>
-    <p class="muted small">What you have on hand. Add an amount (“2 cups”, “3 lb”) and the shopping list buys only what's missing; leave it off and it counts as “have it”.</p>
+    <p class="muted small">What you have on hand. Add an amount (“2 cups”, “1 1/2 lb”) and the shopping list buys only what's missing; leave it off and it counts as “have it”.</p>
     <form class="inline-form add-item" id="add">
       <input id="add-name" placeholder="Add what you have, e.g. rice or 2 cans beans" autocomplete="off" autocorrect="off" enterkeyhint="done">
       <button class="btn primary">Add</button>
@@ -73,7 +73,7 @@ function openItemSheet(id) {
     <h2>${esc(p.name)}</h2>
     <form class="form" id="f">
       <label>Item<input name="name" value="${esc(p.name)}" autocomplete="off"></label>
-      <label>Amount <small class="muted">optional</small><input name="amount" value="${esc(amountText(p))}" placeholder="e.g. 2 cups, 3 lb, 1 (14.5 oz) can" autocomplete="off"></label>
+      <label>Amount <small class="muted">optional</small><input name="amount" value="${esc(amountText(p))}" placeholder="e.g. 2 cups, 1 1/2 lb, 1 (14.5 oz) can" autocomplete="off"></label>
       <div class="action-row">
         <button class="btn primary">Save</button>
         <button type="button" class="btn danger" id="del">Used up / tossed</button>

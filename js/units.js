@@ -24,9 +24,17 @@ function numValue(s) {
   return parseFloat(s);
 }
 
-// Reads a quantity from the start of a string: "1 1/2", "½", "1.5", "2-3", "a".
+// Writes fractions one way: "1⁄2" -> "1/2", "1-1/2" or "1 and 1/2" -> "1 1/2", "1-½" -> "1½".
+export function normalizeFractions(str) {
+  return String(str)
+    .replace(/\s*[⁄∕]\s*/g, '/')
+    .replace(/^(\d+)\s*(?:-|\s+and\s+)\s*(\d+\/\d+)/i, '$1 $2')
+    .replace(new RegExp(`^(\\d+)\\s*(?:-|\\s+and\\s+)\\s*([${FC}])`, 'i'), '$1$2');
+}
+
+// Reads a quantity from the start of a string: "1 1/2", "1-1/2", "½", "1½", "1.5", "2-3", "a".
 export function parseQuantity(str) {
-  const s = str.trimStart();
+  const s = normalizeFractions(str.trimStart());
   const m = s.match(QTY_RE);
   if (m) {
     const value = numValue(m[1]);

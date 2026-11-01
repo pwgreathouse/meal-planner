@@ -26,21 +26,22 @@ export function parseIngredient(raw) {
   if (q) {
     qty = q.value;
     max = q.max;
-    s = q.rest.trim();
+    s = q.rest.replace(/^-(?=[a-z])/i, '').trim(); // "1/2-pound beef" -> "pound beef"
   }
 
   // Package size: "(14 oz)", "(14-ounce)" or "14-ounce" right after the count.
   const paren = s.match(/^\(([^)]*)\)\s*/);
-  const hyph = !paren && qty != null && s.match(/^(\d+(?:\.\d+)?)[-\s](ounce|oz|pound|lb|gram|g|ml|liter|l)\b\s*/i);
+  const hq = !paren && qty != null && parseQuantity(s);
+  const hyph = hq && !hq.max && hq.rest.match(/^\s*-?\s*(ounce|oz|pound|lb|gram|g|ml|liter|l)\b\s*/i);
   if (paren) {
     const inner = parseQuantity(paren[1]);
     const u = inner && matchUnit(inner.rest.replace(/^-/, ''));
     if (u) size = { qty: inner.value, unit: u.key };
     s = s.slice(paren[0].length);
   } else if (hyph) {
-    const u = matchUnit(hyph[2]);
-    if (u) size = { qty: parseFloat(hyph[1]), unit: u.key };
-    s = s.slice(hyph[0].length);
+    const u = matchUnit(hyph[1]);
+    if (u) size = { qty: hq.value, unit: u.key };
+    s = hq.rest.slice(hyph[0].length);
   }
 
   const u = matchUnit(s);

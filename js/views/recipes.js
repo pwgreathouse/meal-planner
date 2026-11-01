@@ -265,7 +265,7 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
       // A unit we don't offer in the picker stays with the name, so nothing is lost.
       const name = (ing.unit && !unit ? `${ing.unit} ` : '') + (ing.name || '') + (ing.note ? `, ${ing.note}` : '');
       row.className = 'ing-row';
-      row.innerHTML = `${handle}<input class="i-amt" name="amt-${n}" ${noFill()} value="${esc(amount)}" inputmode="decimal" placeholder="2" aria-label="Amount">
+      row.innerHTML = `${handle}<input class="i-amt" name="amt-${n}" ${noFill()} value="${esc(amount)}" inputmode="text" placeholder="1 1/2" aria-label="Amount">
         <select class="i-unit" name="unit-${n}" autocomplete="off" aria-label="Unit">${unitOptions(unit)}</select>
         <input class="i-name" name="ing-${n}" ${noFill()} value="${esc(name)}" list="ing-names" placeholder="ingredient, prep" aria-label="Ingredient" enterkeyhint="next" autocapitalize="off">
         <button type="button" class="row-x" aria-label="Remove">✕</button>`;
