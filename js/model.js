@@ -125,14 +125,6 @@ export const leftoversOf = (week, id) => week.entries.filter((e) => e.type === '
 export const getList = () => db.get('shopping', 'list') || { id: 'list', items: [], addedWeeks: {} };
 const saveList = (list) => db.put('shopping', list);
 
-// Every ingredient name used in your recipes, most used first: suggestions while typing.
-export function knownIngredientNames() {
-  const counts = new Map();
-  for (const r of db.all('recipes')) {
-    for (const i of r.ingredients || []) if (!i.header && i.name) counts.set(i.name.toLowerCase(), (counts.get(i.name.toLowerCase()) || 0) + 1);
-  }
-  return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 400).map(([n]) => n);
-}
 
 const emptyMeasure = () => ({ ml: 0, vol: {}, g: 0, wt: {}, counts: {}, sizes: {} });
 const mostUsed = (o) => Object.entries(o).sort((a, b) => b[1] - a[1])[0]?.[0];

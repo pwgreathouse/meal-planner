@@ -3,7 +3,7 @@
 //   amount is what the user sees and types ("2 cups", "1 (14.5 oz) can", "half a bag");
 //   qty/unit/size are read from it when it's a measurable amount. qty null means "have it, amount unknown".
 import * as db from './db.js';
-import { uid, capitalize } from './util.js';
+import { uid, capitalize, normalizeText } from './util.js';
 import { ingredientKey, parseIngredient } from './ingredients.js';
 import { remember } from './catalog.js';
 import { unitDim, toBase, fromBase, friendlyVolume, friendlyWeight, formatAmount, unitLabel, formatQty } from './units.js';
@@ -53,11 +53,34 @@ export function measures(qty, unit, size) {
 }
 const itemMeasures = (p) => measures(p.qty, p.unit, p.size);
 
-// How much of an ingredient is on hand in one dimension (base units).
+// Which pantry items stand for an ingredient. The same name first; otherwise the part before the first comma
+// ("Chicken, ground" is chicken) or a close name ("Onion" for "yellow onion"). When several match
+// ("Waffles, frozen, blueberry" and "Waffles, frozen, chocolate chip"), the ones whose details the recipe mentions win.
+export function matchPantry(key, detail = '', items = pantryItems()) {
+  const keyOf = (p) => p.key || ingredientKey(p.name);
+  const exact = items.filter((p) => keyOf(p) === key);
+  if (exact.length) return exact;
+  const near = items.filter((p) => {
+    const head = ingredientKey(String(p.name).split(',')[0]);
+    return head === key || closeMatch(head, key) || closeMatch(keyOf(p), key);
+  });
+  if (near.length < 2) return near;
+  const words = new Set(normalizeText(`${key} ${detail}`).split(' '));
+  const score = (p) => normalizeText(String(p.name).split(',').slice(1).join(' ')).split(' ').filter((w) => w && words.has(w)).length;
+  const best = Math.max(...near.map(score));
+  return near.filter((p) => score(p) === best);
+}
+
+// Pantry "Onion" and a recipe's "yellow onion" (or the other way round): one name is the end of the other.
+function closeMatch(a, b) {
+  return a.endsWith(` ${b}`) || b.endsWith(` ${a}`);
+}
+
+// How much of these items is on hand in one dimension (base units).
 // unknown: there's at least one entry with no amount, i.e. "have it".
-export function available(key, dim) {
+function available(items, dim) {
   let total = 0, unknown = false;
-  for (const p of itemsFor(key)) {
+  for (const p of items) {
     if (p.qty == null) { unknown = true; continue; }
     const m = itemMeasures(p).find(([d]) => d === dim);
     if (m) total += m[1];
@@ -110,16 +133,42 @@ export async function updatePantryItem(p, { name, amount, brand = p.brand || '',
   await db.put('pantry', p);
 }
 
+// Items counted in whole things ("3", "2 cans", "1 bag") can go up or down by one from the Pantry screen.
+export const isCounted = (p) => p.qty != null && !['volume', 'weight'].includes(unitDim(p.unit));
+
+// One more or one fewer. Reaching zero removes the item; returns the removed copy (for Undo) or null.
+export async function stepCount(p, delta) {
+  const qty = Math.max(0, Math.round((p.qty + delta) * 100) / 100);
+  if (qty <= 0.02) return (await removePantryItems([p.id]))[0] || null;
+  Object.assign(p, { qty, amount: formatPantryAmount(qty, p.unit, p.size) });
+  await db.put('pantry', p);
+  return null;
+}
+
+// Removes items; returns copies so they can be put back.
+export async function removePantryItems(ids) {
+  const copies = ids.map((id) => db.get('pantry', id)).filter(Boolean).map((p) => ({ ...p }));
+  for (const p of copies) await db.remove('pantry', p.id);
+  return copies;
+}
+
+export async function restorePantryItems(copies) {
+  for (const p of copies) {
+    await db.clearTombstone(`pantry/${p.id}`);
+    await db.put('pantry', { ...p });
+  }
+}
+
 // Takes a shopping list item's numbers ({ ml, g, counts }) and subtracts what's on hand.
 // Returns { need (same shape, what's left to buy), have (text of what's on hand), covered (nothing to buy) }.
 export function subtractPantry(key, m) {
-  const items = itemsFor(key);
+  const items = matchPantry(key);
   if (!items.length) return { need: m, have: '', covered: false };
   const haveParts = [];
   const need = { ...m, counts: { ...m.counts } };
   let anyUnknown = false;
   const take = (dim, amt, preferred) => {
-    const a = available(key, dim);
+    const a = available(items, dim);
     anyUnknown ||= a.unknown;
     if (a.total > EPS && amt > EPS) haveParts.push(formatBase(dim, a.total, preferred));
     return Math.max(0, amt - a.total);
@@ -152,11 +201,9 @@ export function planDeductions(recipe, servings) {
   for (const ing of recipe.ingredients || []) {
     if (ing.header || !ing.name) continue;
     const key = ingredientKey(ing.name);
-    const all = [...work.values()];
-    let matches = all.filter((p) => p.key === key);
-    if (!matches.length) matches = all.filter((p) => closeMatch(p.key, key));
+    const matches = matchPantry(key, ing.note || '', [...work.values()]);
     if (!matches.length) continue;
-    const forName = matches[0].key === key ? '' : ing.name;
+    const forName = [matches[0].key, ingredientKey(matches[0].name.split(',')[0])].includes(key) ? '' : ing.name;
     const measured = matches.filter((p) => p.qty != null && p.qty > EPS);
     let matched = false;
     if (ing.qty != null) {
@@ -186,11 +233,6 @@ export function planDeductions(recipe, servings) {
   // An item already going down by an amount doesn't also need the "used it up" offer.
   const reduced = new Set(rows.filter((r) => r.kind === 'use').map((r) => r.itemId));
   return rows.filter((r) => r.kind === 'use' || !reduced.has(r.itemId));
-}
-
-// Pantry "Onion" and a recipe's "yellow onion" (or the other way round): one name is the end of the other.
-function closeMatch(a, b) {
-  return a.endsWith(` ${b}`) || b.endsWith(` ${a}`);
 }
 
 // Applies the chosen rows. Anything that reaches zero, or is marked used up, is removed.

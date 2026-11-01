@@ -365,3 +365,16 @@ details.panel summary h2 { display: inline; color: var(--text); }
 .dragging { opacity: .85; background: var(--accent-soft); border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,.15); position: relative; z-index: 2; }
 .dragging .drag { cursor: grabbing; color: var(--accent); }
 .sug-wrap + .suggest { margin: -8px 0 0; }
+
+/* ---------- Pantry quick edits ---------- */
+.pantry-item { padding-right: 4px; }
+.pantry-item .item-body { padding-left: 14px; }
+.qty-btn { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); font-size: 1.1rem; line-height: 1; cursor: pointer; color: var(--text); }
+.pantry-item .row-x { flex: none; }
+.pantry-item.selecting { cursor: pointer; padding-left: 14px; }
+.pantry-item.selecting input { flex: none; width: 20px; height: 20px; }
+.sel-bar { position: fixed; left: 0; right: 0; bottom: calc(var(--tab-h) + var(--safe-b)); z-index: 21; display: flex; gap: 8px; justify-content: center; padding: 10px 16px; background: var(--surface); border-top: 1px solid var(--line); }
+.sel-bar .btn { flex: 1; max-width: 220px; }
+#toast.has-action { pointer-events: auto; display: flex; align-items: center; gap: 12px; }
+#toast button { background: none; border: 0; color: var(--accent-soft); font-weight: 700; font-size: .9rem; padding: 4px 2px; cursor: pointer; }
+.ing-row .suggest { grid-column: 1 / -1; margin: 0 0 4px; }

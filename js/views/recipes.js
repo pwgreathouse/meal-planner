@@ -2,12 +2,12 @@
 import * as db from '../db.js';
 import { esc, fmtMinutes, fmtDay } from '../util.js';
 import { getPrefs } from '../prefs.js';
-import { newRecipe, searchRecipes, allTags, addRecipesToList, listResultText, knownIngredientNames } from '../model.js';
+import { newRecipe, searchRecipes, allTags, addRecipesToList, listResultText } from '../model.js';
 import { parseIngredient, formatIngredient, ingredientText } from '../ingredients.js';
 import { formatQty, UNITS } from '../units.js';
-import { toast, stepperHtml, wireSteppers, emptyState, openSheet, makeSortable } from '../ui.js';
+import { toast, stepperHtml, wireSteppers, emptyState, openSheet, makeSortable, attachSuggest } from '../ui.js';
 import { openAddToPlan } from './plan.js';
-import { remember } from '../catalog.js';
+import { remember, searchCatalog } from '../catalog.js';
 
 const listState = { q: '', cat: 'All', sort: 'az' };
 
@@ -222,7 +222,6 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
           <button type="button" class="btn-text small" id="add-sec">＋ Section heading</button>
           <button type="button" class="btn-text small" id="paste-ing">Paste a list</button>
         </div>
-        <datalist id="ing-names">${knownIngredientNames().map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
       </fieldset>
       <details class="more-details" ${recipe.tags?.length ? 'open' : ''}>
         <summary>More details</summary>
@@ -267,10 +266,24 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
       row.className = 'ing-row';
       row.innerHTML = `${handle}<input class="i-amt" name="amt-${n}" ${noFill()} value="${esc(amount)}" inputmode="text" placeholder="1 1/2" aria-label="Amount">
         <select class="i-unit" name="unit-${n}" autocomplete="off" aria-label="Unit">${unitOptions(unit)}</select>
-        <input class="i-name" name="ing-${n}" ${noFill()} value="${esc(name)}" list="ing-names" placeholder="ingredient, prep" aria-label="Ingredient" enterkeyhint="next" autocapitalize="off">
+        <input class="i-name" name="ing-${n}" ${noFill()} value="${esc(name)}" placeholder="ingredient, prep" aria-label="Ingredient" enterkeyhint="next" autocapitalize="off">
         <button type="button" class="row-x" aria-label="Remove">✕</button>`;
     }
     ingRows.appendChild(row);
+    // Suggestions from every item in the app while typing; a pick keeps any ", prep" already typed.
+    const nameInput = row.querySelector('.i-name');
+    if (nameInput) {
+      attachSuggest(nameInput, {
+        container: row,
+        search: (q) => searchCatalog(q.split(',')[0]),
+        label: (x) => esc(x.name),
+        onPick: (x) => {
+          const prep = nameInput.value.includes(',') ? nameInput.value.slice(nameInput.value.indexOf(',')) : '';
+          nameInput.value = x.name.charAt(0).toLowerCase() + x.name.slice(1) + prep;
+          nameInput.focus();
+        },
+      });
+    }
     if (focus) {
       // Start the new line clean even if the browser tried to fill it in.
       row.querySelectorAll('input').forEach((i) => { if (!ing.name && !ing.qty) i.value = ''; });

@@ -1,12 +1,24 @@
 // Shared UI pieces: toast, bottom sheets, steppers.
 import { esc } from './util.js';
 
-export function toast(msg, ms = 2200) {
+// action: optional { label, run } shown as a button in the toast, e.g. Undo.
+export function toast(msg, ms = 2200, action = null) {
   const t = document.getElementById('toast');
   t.textContent = msg;
+  t.classList.toggle('has-action', !!action);
+  if (action) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = action.label;
+    b.onclick = () => {
+      t.classList.remove('show');
+      action.run();
+    };
+    t.append(' ', b);
+  }
   t.classList.add('show');
   clearTimeout(t._timer);
-  t._timer = setTimeout(() => t.classList.remove('show'), ms);
+  t._timer = setTimeout(() => t.classList.remove('show'), action ? Math.max(ms, 5000) : ms);
 }
 
 // Opens a bottom sheet. Returns { el, close }.
@@ -71,11 +83,13 @@ export const emptyState = (title, body, actions = '') =>
   `<div class="empty"><h2>${esc(title)}</h2><p>${body}</p>${actions}</div>`;
 
 // Suggestions under a text box while typing. search(q) returns entries; label(e) is shown; onPick(e) runs on tap.
-export function attachSuggest(input, { search, label, onPick }) {
+// The box goes after the input's form or div, or at the end of `container` when given (e.g. a recipe row).
+export function attachSuggest(input, { search, label, onPick, container }) {
   const box = document.createElement('div');
   box.className = 'suggest';
   box.hidden = true;
-  input.closest('form, div').insertAdjacentElement('afterend', box);
+  if (container) container.append(box);
+  else input.closest('form, div').insertAdjacentElement('afterend', box);
   let shown = [];
   const draw = () => {
     shown = search(input.value);

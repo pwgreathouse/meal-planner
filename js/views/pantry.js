@@ -5,14 +5,23 @@ import { getPrefs, savePrefs, aisleList, aisleName, placeAisle } from '../prefs.
 import { guessAisle } from '../aisles.js';
 import { ingredientKey } from '../ingredients.js';
 import { openSheet, toast, attachSuggest, fillWithAmount } from '../ui.js';
-import { searchCatalog } from '../catalog.js';
-import { pantryItems, amountText, addTextToPantry, updatePantryItem, planDeductions, applyDeductions, formatPantryAmount } from '../pantry.js';
+import { searchCatalog, leadingAmount } from '../catalog.js';
+import { pantryItems, amountText, addTextToPantry, updatePantryItem, planDeductions, applyDeductions, formatPantryAmount, isCounted, stepCount, removePantryItems, restorePantryItems } from '../pantry.js';
 
 const state = { q: '' };
 
+// "Removed Milk · Undo": puts removed items back if tapped.
+function undoable(copies, verb) {
+  if (!copies.length) return;
+  const what = copies.length === 1 ? copies[0].name : `${copies.length} items`;
+  toast(`${verb} ${what}`, 5000, { label: 'Undo', run: () => restorePantryItems(copies) });
+}
+
 export function pantryView(el) {
+  let selected = null; // Set of ticked ids while in Select mode
   el.innerHTML = `
-    <header class="topbar"><h1>Pantry</h1></header>
+    <header class="topbar"><h1>Pantry</h1><button class="btn-text" id="select">Select</button></header>
+    <div class="sel-bar" id="sel-bar" hidden><button class="btn danger" id="sel-remove">Remove</button><button class="btn" id="sel-done" data-cancel>Cancel</button></div>
     <p class="muted small">What you have on hand. Add an amount (“2 cups”, “1 1/2 lb”) and the shopping list buys only what's missing; leave it off and it counts as “have it”.</p>
     <form class="inline-form add-item" id="add">
       <input id="add-name" placeholder="Add what you have, e.g. rice or 2 cans beans" autocomplete="off" autocorrect="off" enterkeyhint="done">
@@ -38,9 +47,29 @@ export function pantryView(el) {
       : !items.length
         ? `<p class="muted center pad">Nothing matches “${esc(state.q)}”.</p>`
         : groups.map(([a, g]) => `<section class="aisle">${a ? `<h3>${esc(aisleName(a))} <small>${g.length}</small></h3>` : ''}
-            ${g.map((p) => `<button class="item pantry-item" data-item="${p.id}">
-              <span class="item-body"><span class="item-name">${esc(p.name)}${p.brand ? ` <span class="item-brand">${esc(p.brand)}</span>` : ''}</span>${amountText(p) ? `<span class="item-amt">${esc(amountText(p))}</span>` : ''}${p.note ? `<span class="item-note">${esc(p.note)}</span>` : ''}</span></button>`).join('')}
+            ${g.map(rowHtml).join('')}
           </section>`).join('');
+    el.querySelector('#select').textContent = selected ? 'Done' : 'Select';
+    el.querySelector('#select').hidden = !all.length;
+    el.querySelector('#sel-bar').hidden = !selected;
+    if (selected) {
+      el.querySelector('#sel-remove').textContent = selected.size ? `Remove ${selected.size}` : 'Remove';
+      el.querySelector('#sel-remove').disabled = !selected.size;
+    }
+  }
+
+  // Tap the name to edit; − / + for things counted in whole items; ✕ when it's used up or tossed.
+  // In Select mode, tapping rows ticks them for removing several at once.
+  function rowHtml(p) {
+    const body = `<span class="item-name">${esc(p.name)}${p.brand ? ` <span class="item-brand">${esc(p.brand)}</span>` : ''}</span>${amountText(p) ? `<span class="item-amt">${esc(amountText(p))}</span>` : ''}${p.note ? `<span class="item-note">${esc(p.note)}</span>` : ''}`;
+    if (selected) {
+      return `<label class="item pantry-item selecting"><input type="checkbox" data-sel="${p.id}" ${selected.has(p.id) ? 'checked' : ''}><span class="item-body">${body}</span></label>`;
+    }
+    return `<div class="item pantry-item">
+      <button class="item-body" data-item="${p.id}">${body}</button>
+      ${isCounted(p) ? `<button class="qty-btn" data-step="-1" data-id="${p.id}" aria-label="One fewer ${esc(p.name)}">−</button><button class="qty-btn" data-step="1" data-id="${p.id}" aria-label="One more ${esc(p.name)}">+</button>` : ''}
+      <button class="row-x" data-gone="${p.id}" aria-label="Used up: ${esc(p.name)}">✕</button>
+    </div>`;
   }
 
   el.querySelector('#add').addEventListener('submit', async (e) => {
@@ -56,15 +85,42 @@ export function pantryView(el) {
     draw();
   });
   el.querySelector('#sort').addEventListener('change', (e) => savePrefs({ pantrySort: e.target.value }));
-  el.addEventListener('click', (e) => {
-    const row = e.target.closest('[data-item]');
+  el.addEventListener('change', (e) => {
+    const box = e.target.closest('[data-sel]');
+    if (!box) return;
+    if (box.checked) selected.add(box.dataset.sel);
+    else selected.delete(box.dataset.sel);
+    draw();
+  });
+  el.addEventListener('click', async (e) => {
+    const t = e.target;
+    if (t.id === 'select' || t.id === 'sel-done') {
+      selected = selected ? null : new Set();
+      return draw();
+    }
+    if (t.id === 'sel-remove') {
+      const copies = await removePantryItems([...selected]);
+      selected = null;
+      draw();
+      return undoable(copies, 'Removed');
+    }
+    const step = t.closest('[data-step]');
+    if (step) {
+      const p = db.get('pantry', step.dataset.id);
+      const gone = p && (await stepCount(p, +step.dataset.step));
+      return gone && undoable([gone], 'Used up');
+    }
+    const x = t.closest('[data-gone]');
+    if (x) return undoable(await removePantryItems([x.dataset.gone]), 'Removed');
+    const row = t.closest('[data-item]');
     if (row) openItemSheet(row.dataset.item);
   });
 
   attachSuggest(el.querySelector('#add-name'), {
     search: (q) => searchCatalog(q),
     label: (x) => esc(x.name),
-    onPick: (x) => fillWithAmount(el.querySelector('#add-name'), x.name, ''),
+    // Keeps an amount already typed: "2 cans bla" + pick → "2 cans Black beans".
+    onPick: (x) => fillWithAmount(el.querySelector('#add-name'), x.name, leadingAmount(el.querySelector('#add-name').value)),
   });
 
   draw();
@@ -77,7 +133,7 @@ function openItemSheet(id) {
   const sheet = openSheet(`
     <h2>${esc(p.name)}</h2>
     <form class="form" id="f">
-      <label>Item<input name="name" value="${esc(p.name)}" autocomplete="off"></label>
+      <div class="sug-wrap"><label>Item<input name="name" value="${esc(p.name)}" autocomplete="off" autocorrect="off"></label></div>
       <label>Amount <small class="muted">optional</small><input name="amount" value="${esc(amountText(p))}" placeholder="e.g. 2 cups, 1 1/2 lb, 1 (14.5 oz) can" autocomplete="off"></label>
       <label>Brand <small class="muted">optional</small><input name="brand" value="${esc(p.brand || '')}" autocomplete="off"></label>
       <label>Note <small class="muted">optional</small><input name="note" value="${esc(p.note || '')}" placeholder="e.g. in the basement freezer" autocomplete="off"></label>
@@ -87,6 +143,7 @@ function openItemSheet(id) {
       </div>
     </form>`);
   const f = sheet.el.querySelector('#f');
+  attachSuggest(f.elements.name, { search: (q) => searchCatalog(q), label: (x) => esc(x.name), onPick: (x) => (f.elements.name.value = x.name) });
   f.addEventListener('submit', async (e) => {
     e.preventDefault();
     const d = new FormData(f);
@@ -94,9 +151,9 @@ function openItemSheet(id) {
     sheet.close();
   });
   sheet.el.querySelector('#del').addEventListener('click', async () => {
-    await db.remove('pantry', p.id);
+    const copies = await removePantryItems([p.id]);
     sheet.close();
-    toast(`Removed ${p.name}`);
+    undoable(copies, 'Removed');
   });
 }
 

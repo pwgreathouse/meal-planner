@@ -307,7 +307,7 @@ function openItemSheet(id) {
   const sheet = openSheet(`
     <h2>Edit item</h2>
     <form class="form" id="f" autocomplete="off">
-      <label>Item<input name="name" value="${esc(item.name)}" autocorrect="off"></label>
+      <div class="sug-wrap"><label>Item<input name="name" value="${esc(item.name)}" autocorrect="off"></label></div>
       <div class="grid-2">
         <label>Amount<input name="amount" value="${esc(item.amount || '')}" placeholder="e.g. 2 lb, 1/2 gallon" autocorrect="off"></label>
         <label>Category<select name="aisle">${aisleOptions(aisle)}</select></label>
@@ -319,6 +319,7 @@ function openItemSheet(id) {
       <div class="action-row"><button class="btn primary">Save</button><button type="button" class="btn danger" id="del">Remove</button></div>
     </form>`);
   const f = sheet.el.querySelector('#f');
+  attachSuggest(f.elements.name, { search: (q) => searchCatalog(q), label: (x) => esc(x.name), onPick: (x) => (f.elements.name.value = x.name) });
   const save = async (extra = {}) => {
     const d = new FormData(f);
     const next = d.get('aisle');

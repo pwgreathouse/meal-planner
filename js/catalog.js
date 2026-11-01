@@ -72,21 +72,81 @@ export async function forget(key) {
   await db.put('settings', doc);
 }
 
-// Best matches for what's being typed: names that start with it first, then most used.
+// Every item name anywhere in the app: remembered items, plus any recipe ingredient, pantry item or list item
+// not remembered yet. Remembered ones keep their usual amount, brand and note.
+function everyItem() {
+  const byKey = new Map(catalogEntries().map((e) => [e.key, e]));
+  const add = (name) => {
+    const clean = String(name || '').trim();
+    const key = ingredientKey(clean);
+    if (key && !byKey.has(key)) byKey.set(key, { key, name: capitalize(clean), amount: '', count: 0, last: 0 });
+  };
+  for (const r of db.all('recipes')) for (const i of r.ingredients || []) if (!i.header) add(i.name);
+  for (const p of db.all('pantry')) add(p.name);
+  for (const i of db.get('shopping', 'list')?.items || []) add(i.name);
+  return [...byKey.values()];
+}
+
+// Amount words typed before an item ("2 cans", "1 1/2 lb") are skipped when searching.
+const AMOUNT_WORD = /^([\d./½¼¾⅓⅔⅛-]+|cups?|cans?|lbs?|pounds?|oz|ounces?|bags?|box(es)?|packages?|pkgs?|gallons?|gal|quarts?|qts?|pints?|tbsp|tsp|bunch(es)?|dozen|jars?|bottles?|bunches|heads?|cloves?|slices?)$/i;
+
+// The amount at the start of what was typed: "2 cans black be" -> "2 cans".
+export function leadingAmount(text) {
+  const words = String(text || '').trim().split(/\s+/);
+  const n = words.findIndex((w) => !AMOUNT_WORD.test(w));
+  return (n < 0 ? words : words.slice(0, n)).join(' ');
+}
+
+// Small typo allowance: edits needed to turn a into b (stops early past the limit).
+function editDistance(a, b, max) {
+  if (Math.abs(a.length - b.length) > max) return max + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (Math.min(...cur) > max) return max + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+// How well one typed word fits a name's words: starts a word 3, inside a word 2, a near miss ("brocoli") 1.
+function wordScore(t, words) {
+  if (words.some((w) => w.startsWith(t))) return 3;
+  if (words.some((w) => w.includes(t))) return 2;
+  const max = t.length >= 7 ? 2 : t.length >= 3 ? 1 : 0;
+  // Compare with the start of each word a letter shorter or longer too, since a typo can drop or add one.
+  const near = (w) => [t.length - 1, t.length, t.length + 1].some((n) => editDistance(t, w.slice(0, n), max) <= max);
+  if (max && words.some(near)) return 1;
+  return 0;
+}
+
+// Best matches for what's being typed, from every item in the app. Each typed word has to fit (closely is fine);
+// names that start with it come first, then the ones used most.
 export function searchCatalog(q, limit = 6) {
-  const n = normalizeText(q);
-  if (!n) return [];
-  return catalogEntries()
+  const tokens = normalizeText(q).split(' ').filter(Boolean);
+  while (tokens.length > 1 && AMOUNT_WORD.test(tokens[0])) tokens.shift(); // "2 cans black be" searches "black be"
+  if (!tokens.length) return [];
+  const whole = tokens.join(' ');
+  return everyItem()
     .map((e) => {
       const name = normalizeText(e.name);
-      const starts = name.startsWith(n) || name.split(' ').some((w) => w.startsWith(n));
-      return { e, score: name.includes(n) ? (starts ? 2 : 1) : 0 };
+      const words = name.split(' ');
+      let score = 0;
+      for (const t of tokens) {
+        const s = wordScore(t, words);
+        if (!s) return { e, score: 0 };
+        score += s;
+      }
+      if (name.startsWith(whole)) score += 2;
+      return { e, score };
     })
     .filter((x) => x.score)
-    .sort((a, b) => b.score - a.score || b.e.count - a.e.count || a.e.name.localeCompare(b.e.name))
+    .sort((a, b) => b.score - a.score || b.e.count - a.e.count || a.e.name.length - b.e.name.length || a.e.name.localeCompare(b.e.name))
     .slice(0, limit)
     .map((x) => x.e);
 }
+
 
 // Most-used items, for quick-add buttons.
 export function frequentItems(n = 8, exclude = new Set()) {
