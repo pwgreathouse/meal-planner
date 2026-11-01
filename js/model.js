@@ -4,7 +4,7 @@ import { uid, normalizeText, capitalize } from './util.js';
 import { ingredientKey, parseIngredient } from './ingredients.js';
 import { unitDim, toBase, friendlyVolume, friendlyWeight, formatAmount, unitLabel, formatQty } from './units.js';
 import { guessAisle } from './aisles.js';
-import { getPrefs } from './prefs.js';
+import { getPrefs, savePrefs } from './prefs.js';
 import { subtractPantry } from './pantry.js';
 import { remember, catalogEntries } from './catalog.js';
 
@@ -115,8 +115,12 @@ export const leftoversOf = (week, id) => week.entries.filter((e) => e.type === '
 
 // ---------- Shopping list ----------
 // One running list, like a checklist: { id: 'list', items: [...], addedWeeks: { <Sunday ISO>: true } }.
-// item: { id, key, name, amount, measure, aisle, checked, recipes: [titles] }.
+// item: { id, key, name, amount, measure, aisle, brand, note, later, checked, recipes: [titles], parts }.
 // `measure` keeps the numbers behind `amount` so the same ingredient from more recipes adds up properly.
+// `parts` is what each source asked for: { [source]: { title, m } }, where source is a plan entry id,
+//   "r:<recipe id>" (added from the recipe page) or "_manual" (typed in). A meal taken off the plan can then
+//   take its share back off the list. null when it can't be known (older items, amounts typed over).
+// `later`: couldn't get it (out of stock); it stays on the list for next time.
 
 export const getList = () => db.get('shopping', 'list') || { id: 'list', items: [], addedWeeks: {} };
 const saveList = (list) => db.put('shopping', list);
@@ -169,7 +173,8 @@ function combineIngredients(batches) {
   const prefs = getPrefs();
   const never = new Set(prefs.neverBuy.map(ingredientKey));
   const items = new Map();
-  for (const { recipe: r, servings } of batches) {
+  for (const { recipe: r, servings, source } of batches) {
+    const src = source || `r:${r.id}`;
     const factor = (servings || r.servings || 1) / (r.servings || servings || 1);
     for (const ing of r.ingredients || []) {
       if (ing.header || !ing.name) continue;
@@ -177,13 +182,14 @@ function combineIngredients(batches) {
       if (!key || never.has(key)) continue;
       let it = items.get(key);
       if (!it) {
-        it = { key, names: {}, units: {}, recipes: new Set(), measure: emptyMeasure() };
+        it = { key, names: {}, units: {}, recipes: new Set(), measure: emptyMeasure(), parts: {} };
         items.set(key, it);
       }
       it.names[ing.name.toLowerCase()] = (it.names[ing.name.toLowerCase()] || 0) + 1;
       if (ing.unit) it.units[ing.unit] = (it.units[ing.unit] || 0) + 1;
       it.recipes.add(r.title);
       addToMeasure(it.measure, ing, factor);
+      addToMeasure((it.parts[src] ||= { title: r.title, m: emptyMeasure() }).m, ing, factor);
     }
   }
   return [...items.values()].map((it) => ({
@@ -192,6 +198,7 @@ function combineIngredients(batches) {
     measure: it.measure,
     aisle: guessAisle(it.key, prefs.aisleOverrides, mostUsed(it.units)),
     recipes: [...it.recipes],
+    parts: it.parts,
   }));
 }
 
@@ -215,15 +222,22 @@ export async function addRecipesToList(batches) {
         existing.amount = [existing.amount, formatMeasure(g.measure)].filter(Boolean).join(' + ');
       }
       existing.recipes = [...new Set([...(existing.recipes || []), ...g.recipes])];
+      existing.parts = existing.parts && existing.measure ? mergeParts(existing.parts, g.parts) : null;
       merged++;
     } else {
-      list.items.push({ id: uid(), key: g.key, name: g.name, amount: formatMeasure(g.measure), measure: g.measure, have: g.have, aisle: g.aisle, checked: false, recipes: g.recipes });
+      list.items.push({ id: uid(), key: g.key, name: g.name, amount: formatMeasure(g.measure), measure: g.measure, have: g.have, aisle: g.aisle, checked: false, recipes: g.recipes, parts: g.parts });
       added++;
     }
   }
   await saveList(list);
   await remember(batches.flatMap(({ recipe }) => (recipe.ingredients || []).filter((i) => !i.header && i.name).map((i) => ({ name: i.name }))));
   return { added, merged, skipped };
+}
+
+function mergeParts(a, b) {
+  const out = { ...a };
+  for (const [s, p] of Object.entries(b)) out[s] = out[s] ? { ...p, m: mergeMeasures(out[s].m, p.m) } : p;
+  return out;
 }
 
 export function listResultText({ added, merged, skipped }) {
@@ -238,7 +252,7 @@ export function listResultText({ added, merged, skipped }) {
 export function weekBatches(start) {
   return getWeek(start).entries
     .filter((e) => e.type === 'recipe' && !e.made)
-    .map((e) => ({ recipe: db.get('recipes', e.recipeId), servings: e.servings }))
+    .map((e) => ({ recipe: db.get('recipes', e.recipeId), servings: e.servings, source: e.id }))
     .filter((b) => b.recipe);
 }
 
@@ -250,10 +264,52 @@ export async function addWeekToList(start) {
   return res;
 }
 
+// Is anything on the list there because of this plan entry? (Older items only know the recipe's title.)
+export function listHasSource(source, title) {
+  return getList().items.some((i) => !i.checked && (i.parts ? !!i.parts[source] : i.recipes?.includes(title)));
+}
+
+// Takes a planned meal's ingredients back off the list (items still to get, not ones in the cart).
+// Items only that meal needed go; shared items go down by its share, or keep their amount when it isn't known.
+export async function removeSourceFromList(source, title) {
+  const list = getList();
+  const res = { removed: 0, reduced: 0, kept: 0 };
+  const drop = new Set();
+  for (const it of list.items) {
+    if (it.checked) continue;
+    if (it.parts?.[source]) {
+      delete it.parts[source];
+      const rest = Object.values(it.parts);
+      if (!rest.length) { drop.add(it.id); res.removed++; continue; }
+      if (!rest.some((p) => p.title === title)) it.recipes = (it.recipes || []).filter((t) => t !== title);
+      if (!it.measure) { res.kept++; continue; }
+      const { need, have, covered } = subtractPantry(it.key, rest.reduce((m, p) => mergeMeasures(m, p.m), emptyMeasure()));
+      if (covered && !it.parts._manual) { drop.add(it.id); res.removed++; continue; }
+      Object.assign(it, { measure: need, amount: formatMeasure(need), have });
+      res.reduced++;
+    } else if (!it.parts && it.recipes?.includes(title)) {
+      it.recipes = it.recipes.filter((t) => t !== title);
+      if (it.recipes.length) res.kept++;
+      else { drop.add(it.id); res.removed++; }
+    }
+  }
+  list.items = list.items.filter((i) => !drop.has(i.id));
+  await saveList(list);
+  return res;
+}
+
+export function removedText({ removed, reduced, kept }) {
+  const parts = [];
+  if (removed) parts.push(`Took ${removed} item${removed === 1 ? '' : 's'} off the list`);
+  if (reduced) parts.push(`${reduced} lowered`);
+  if (kept) parts.push(`${kept} shared with other meals left as they were`);
+  return parts.join(' · ') || 'Nothing on the list was from this meal';
+}
+
 // Splits typed text into item name and amount.
 // If it ends with an item you've used before ("2 half gallons milk"), that's the name and the rest is the amount,
 // kept word for word. Otherwise "2 lb chicken thighs" -> "Chicken thighs" + "2 lb"; plain "milk" has no amount.
-function splitItemText(text) {
+export function splitItemText(text) {
   const t = text.trim().replace(/\s+/g, ' ');
   const lower = t.toLowerCase();
   const known = catalogEntries()
@@ -278,13 +334,24 @@ function amountMeasure(amount) {
   return { m, unit: ing.unit };
 }
 
-export async function addManualItem(text) {
-  const { name, amount } = splitItemText(text);
+// Typed as one line, e.g. "2 lb chicken thighs" (Your items, quick picks).
+export const addManualItem = (text) => addListItem(splitItemText(text));
+
+// Adds an item with its details. The same item already on the list gets the amount added on.
+// A category picked that differs from the usual one is remembered for this item.
+export async function addListItem({ name, amount = '', brand = '', note = '', aisle = '' }) {
+  name = capitalize(String(name || '').trim().replace(/\s+/g, ' '));
   if (!name) return;
+  amount = String(amount).trim();
+  brand = String(brand).trim();
+  note = String(note).trim();
   const key = ingredientKey(name);
   const parsed = amountMeasure(amount);
-  // Remember it, with the amount typed, for next time.
-  await remember([{ name, amount }]);
+  // Remember it, with the amount and details typed, for next time.
+  await remember([{ name, amount, brand, note }]);
+  const prefs = getPrefs();
+  const usual = guessAisle(key, prefs.aisleOverrides, parsed?.unit);
+  if (aisle && aisle !== usual) await savePrefs({ aisleOverrides: { ...prefs.aisleOverrides, [key]: aisle } });
   const list = getList();
   const existing = list.items.find((i) => !i.checked && i.key === key);
   if (existing) {
@@ -295,10 +362,16 @@ export async function addManualItem(text) {
       existing.measure = null;
       existing.amount = [existing.amount, amount].filter(Boolean).join(' + ');
     }
+    if (existing.parts) existing.parts = mergeParts(existing.parts, { _manual: { title: '', m: parsed?.m || emptyMeasure() } });
+    if (brand) existing.brand = brand;
+    if (note) existing.note = note;
+    if (aisle) existing.aisle = aisle;
+    existing.later = false;
   } else {
     list.items.push({
       id: uid(), key, name, amount: parsed ? formatMeasure(parsed.m) : amount, measure: parsed?.m || null,
-      aisle: guessAisle(key, getPrefs().aisleOverrides, parsed?.unit), checked: false, recipes: [],
+      aisle: aisle || usual, brand, note, later: false, checked: false, recipes: [],
+      parts: { _manual: { title: '', m: parsed?.m || emptyMeasure() } },
     });
   }
   await saveList(list);

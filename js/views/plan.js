@@ -2,7 +2,7 @@
 import * as db from '../db.js';
 import { esc, today, weekStart, weekDates, addDays, fmtDay, fmtWeek } from '../util.js';
 import { getPrefs, MEALS } from '../prefs.js';
-import { getWeek, addRecipeEntry, addSkip, updateEntry, removeEntry, setCovers, leftoversOf, searchRecipes, getList, addWeekToList, listResultText } from '../model.js';
+import { getWeek, addRecipeEntry, addSkip, updateEntry, removeEntry, setCovers, leftoversOf, searchRecipes, getList, addWeekToList, listResultText, listHasSource, removeSourceFromList, removedText } from '../model.js';
 import { openSheet, toast, stepperHtml, wireSteppers, stepperValue, setStepper } from '../ui.js';
 import { openDeductSheet } from './pantry.js';
 import { formatQty } from '../units.js';
@@ -358,5 +358,10 @@ function openEntrySheet(start, entryId) {
     if (lo.length && !confirm('Remove this and its leftover days?')) return;
     await removeEntry(start, e.id);
     sheet.close();
+    // Its ingredients may already be on the shopping list.
+    const title = r?.title || '';
+    if (listHasSource(e.id, title) && confirm(`Also take ${title || 'this meal'}'s ingredients off the shopping list?`)) {
+      toast(removedText(await removeSourceFromList(e.id, title)), 4000);
+    }
   };
 }

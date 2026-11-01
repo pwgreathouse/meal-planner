@@ -45,6 +45,9 @@ const DEFAULTS = {
   basics: ['salt', 'kosher salt', 'black pepper', 'pepper', 'salt and pepper', 'olive oil', 'vegetable oil', 'oil', 'sugar', 'flour', 'all-purpose flour'],
   purchaseSizes: {}, // ingredient key -> last amount put away, e.g. "1 qt"
   aisleOverrides: {},
+  aisles: [], // list categories in shopping order: [{ id, name }]; empty = the built-in AISLES
+  listSort: 'aisle', // 'aisle' or 'az'
+  pantrySort: 'aisle',
   aiModel: 'claude-opus-5-5',
   goals: { calories: 0, protein: 0 }, // daily targets; 0 = not set
   fetchProxyUrl: '',
@@ -60,6 +63,17 @@ export function getPrefs() {
     goals: { ...DEFAULTS.goals, ...(saved.goals || {}) },
   };
 }
+
+// List categories (store aisles), in shopping order. Items store the id, so renaming a category keeps its items;
+// the built-in ones use their original name as id. "Other" always exists.
+export function aisleList() {
+  const saved = getPrefs().aisles;
+  const list = saved?.length ? saved : AISLES.map((a) => ({ id: a, name: a }));
+  return list.some((a) => a.id === 'Other') ? list : [...list, { id: 'Other', name: 'Other' }];
+}
+export const aisleName = (id) => aisleList().find((a) => a.id === id)?.name || 'Other';
+// The category an item is shown in: its own if it still exists, otherwise Other.
+export const placeAisle = (id) => (aisleList().some((a) => a.id === id) ? id : 'Other');
 
 export async function savePrefs(patch) {
   const next = { ...getPrefs(), ...patch, id: 'prefs' };

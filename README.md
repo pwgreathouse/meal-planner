@@ -16,7 +16,10 @@ Plain HTML/CSS/JavaScript with no build step. Free to run: Firebase (Spark plan)
   cover later days; "Not needed" (eating out, etc.); "Made it". "＋ Add to list" adds the week's meals to the shopping list.
 - **List:** one running list. Type any item ("milk", "2 lb chicken"), tap staples, or add a week's meals: ingredients are
   scaled, combined with what's already on the list (1 qt + 2 cups → 6 cups), and grouped by aisle. Items in the Pantry are skipped.
-- **Pantry:** a plain list of what's on hand, edited by hand.
+  "＋ Add an item" opens a sheet with separate item, amount, category, brand and note boxes. Sort by category or A–Z.
+  "Out of stock" keeps an item in a "get next time" section. Removing a meal from the Plan offers to take its share off the list.
+- **Categories:** list categories (aisles) and recipe categories can be renamed, reordered by drag, added or removed (More, or "Edit categories" on the List).
+- **Pantry:** a plain list of what's on hand, edited by hand, with optional brand and note.
 - **Sync:** Google sign-in; everything syncs through Firestore under `users/{uid}/…`; works offline. Rules allow only the owner.
 
 ## Files

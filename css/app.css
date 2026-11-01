@@ -349,3 +349,19 @@ details.panel summary h2 { display: inline; color: var(--text); }
 .yi-row input { padding: 7px 8px; border-radius: 9px; }
 .small-btn { min-height: 34px; padding: 0 12px; font-size: .9rem; }
 .update-bar { position: fixed; left: 16px; right: 16px; bottom: calc(var(--tab-h) + var(--safe-b) + 12px); z-index: 70; border: 0; border-radius: 12px; padding: 14px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 1rem; box-shadow: 0 6px 18px rgba(0,0,0,.2); cursor: pointer; }
+
+/* ---------- Item details, sorting, out of stock, category editor ---------- */
+.add-open { margin: 8px 0 10px; }
+.meta-tools { display: flex; align-items: center; gap: 10px; }
+.meta-tools label { display: flex; align-items: center; gap: 4px; }
+.list-meta input[type="search"] { flex: 1; margin-right: 8px; }
+.item-brand { font-weight: 400; font-size: .85rem; color: var(--muted); }
+.item-note { font-size: .8rem; color: var(--muted); font-style: italic; }
+.aisle.later h3 { color: var(--warn); }
+.item.is-later .item-name::before { content: "⚑ "; color: var(--warn); }
+.cat-rows { display: grid; gap: 6px; margin: 12px 0 10px; }
+.cat-row { display: grid; grid-template-columns: 24px 1fr 32px; gap: 6px; align-items: center; }
+.cat-row input { padding: 9px 10px; border-radius: 10px; }
+.dragging { opacity: .85; background: var(--accent-soft); border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,.15); position: relative; z-index: 2; }
+.dragging .drag { cursor: grabbing; color: var(--accent); }
+.sug-wrap + .suggest { margin: -8px 0 0; }

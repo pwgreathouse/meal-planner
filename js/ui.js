@@ -103,3 +103,40 @@ export function fillWithAmount(input, name, amount) {
   if (amount) input.setSelectionRange(0, amount.length);
   else input.setSelectionRange(input.value.length, input.value.length);
 }
+
+// Drag to reorder rows by their ≡ handle (pointer events, so it works with touch on iPhone too).
+// Scrolls the sheet or page when dragging near its top or bottom edge.
+export function makeSortable(container, rowSelector, { onMove } = {}) {
+  container.addEventListener('pointerdown', (e) => {
+    const grip = e.target.closest('.drag');
+    if (!grip) return;
+    e.preventDefault();
+    const row = grip.closest(rowSelector);
+    const sheet = container.closest('.sheet');
+    row.classList.add('dragging');
+    document.activeElement?.blur?.();
+    const move = (ev) => {
+      ev.preventDefault();
+      const y = ev.clientY;
+      const others = [...container.children].filter((r) => r !== row);
+      const before = others.find((r) => {
+        const b = r.getBoundingClientRect();
+        return y < b.top + b.height / 2;
+      });
+      if ((before || null) !== row.nextElementSibling) container.insertBefore(row, before || null);
+      const top = sheet ? sheet.getBoundingClientRect().top + 60 : 90;
+      const step = y < top ? -10 : y > window.innerHeight - 110 ? 10 : 0;
+      if (step) (sheet || window).scrollBy(0, step);
+    };
+    const end = () => {
+      row.classList.remove('dragging');
+      document.removeEventListener('pointermove', move);
+      document.removeEventListener('pointerup', end);
+      document.removeEventListener('pointercancel', end);
+      onMove?.();
+    };
+    document.addEventListener('pointermove', move, { passive: false });
+    document.addEventListener('pointerup', end);
+    document.addEventListener('pointercancel', end);
+  });
+}

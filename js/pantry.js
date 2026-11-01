@@ -1,5 +1,5 @@
 // Pantry inventory: what's on hand, with optional amounts.
-// item: { id, key, name, amount, qty, unit, size, addedAt }
+// item: { id, key, name, amount, qty, unit, size, brand, note, addedAt }
 //   amount is what the user sees and types ("2 cups", "1 (14.5 oz) can", "half a bag");
 //   qty/unit/size are read from it when it's a measurable amount. qty null means "have it, amount unknown".
 import * as db from './db.js';
@@ -67,7 +67,7 @@ export function available(key, dim) {
 
 // Adds to the pantry. The same item merges: amounts add up when they're measured the same way,
 // otherwise the new amount replaces the old one.
-export async function addToPantry(name, amount = '') {
+export async function addToPantry(name, amount = '', { brand = '', note = '' } = {}) {
   name = capitalize(String(name).trim());
   const key = ingredientKey(name);
   const parsed = parseAmount(amount);
@@ -87,9 +87,11 @@ export async function addToPantry(name, amount = '') {
       Object.assign(existing, parsed, { amount: String(amount).trim() });
     }
     existing.key = key;
+    if (brand) existing.brand = brand;
+    if (note) existing.note = note;
     return db.put('pantry', existing);
   }
-  return db.put('pantry', { id: uid(), key, name, amount: String(amount).trim(), ...parsed, addedAt: Date.now() });
+  return db.put('pantry', { id: uid(), key, name, amount: String(amount).trim(), ...parsed, brand, note, addedAt: Date.now() });
 }
 
 // "2 cans black beans" -> addToPantry("Black beans", "2 cans"). Plain "rice" -> have it, no amount.
@@ -103,8 +105,8 @@ export async function addTextToPantry(text) {
   return addToPantry(t, '');
 }
 
-export async function updatePantryItem(p, { name, amount }) {
-  Object.assign(p, { name: capitalize(name), key: ingredientKey(name), amount, ...parseAmount(amount) });
+export async function updatePantryItem(p, { name, amount, brand = p.brand || '', note = p.note || '' }) {
+  Object.assign(p, { name: capitalize(name), key: ingredientKey(name), amount, brand, note, ...parseAmount(amount) });
   await db.put('pantry', p);
 }
 

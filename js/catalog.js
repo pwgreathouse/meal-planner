@@ -1,10 +1,10 @@
 // Item catalog: every item ever added (list, pantry, recipe ingredients) is remembered here,
 // so it can be picked again later. One synced record: { id: 'catalog', items: { [key]: entry } }.
-// entry: { key, name, amount, count, last }  (amount = the last amount used on the list, if any)
+// entry: { key, name, amount, brand, note, count, last }  (amount, brand, note = the last ones used on the list, if any)
 import * as db from './db.js';
 import { capitalize, normalizeText } from './util.js';
 import { ingredientKey } from './ingredients.js';
-import { getPrefs } from './prefs.js';
+import { getPrefs, placeAisle } from './prefs.js';
 import { guessAisle } from './aisles.js';
 
 const ID = 'catalog';
@@ -32,7 +32,7 @@ function load() {
 export const catalogEntries = () => Object.values(load().items);
 
 export function aisleOf(entry) {
-  return guessAisle(entry.key, getPrefs().aisleOverrides);
+  return placeAisle(guessAisle(entry.key, getPrefs().aisleOverrides));
 }
 
 // Records items being used. amount is kept only when given (e.g. "1 gallon" typed on the list).
@@ -40,7 +40,7 @@ export async function remember(list) {
   const doc = load();
   const now = Date.now();
   let changed = false;
-  for (const { name, amount } of list) {
+  for (const { name, amount, brand, note } of list) {
     const clean = String(name || '').trim();
     const key = ingredientKey(clean);
     if (!key) continue;
@@ -48,6 +48,8 @@ export async function remember(list) {
     e.count++;
     e.last = now;
     if (amount) e.amount = amount;
+    if (brand) e.brand = brand;
+    if (note) e.note = note;
     doc.items[key] = e;
     changed = true;
   }

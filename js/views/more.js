@@ -5,6 +5,7 @@ import { getPrefs, savePrefs, MEALS } from '../prefs.js';
 import { toast, stepperHtml, wireSteppers } from '../ui.js';
 import { onCloudStatus, startSync, signIn, signOut } from '../cloud.js';
 import { APP_VERSION } from '../version.js';
+import { openCategoryEditor } from './categories.js';
 
 const DEFAULT_HELPER = 'https://recipe-helper.pwgreathouse.workers.dev';
 const lines = (v) => String(v || '').split('\n').map((s) => s.trim()).filter(Boolean);
@@ -30,9 +31,9 @@ export function moreView(el) {
       </section>
 
       <section class="panel">
-        <h2>Recipe categories</h2>
-        <p class="muted small">One per line, in the order you want them shown.</p>
-        <textarea id="categories" rows="6">${esc(p.categories.join('\n'))}</textarea>
+        <h2>Categories</h2>
+        <p class="muted small">Rename, reorder, add or remove. List categories group the shopping list and pantry in the order you walk the store.</p>
+        <div class="grid-2"><button class="btn" id="edit-aisles">List categories</button><button class="btn" id="edit-cats">Recipe categories</button></div>
       </section>
 
       <section class="panel">
@@ -94,7 +95,6 @@ export function moreView(el) {
   const readForm = () => ({
     servings: { ...servings },
     staples: lines(el.querySelector('#staples').value),
-    categories: lines(el.querySelector('#categories').value),
     neverBuy: lines(el.querySelector('#never').value),
     fetchProxyUrl: el.querySelector('#proxy').value.trim(),
     fetchProxyToken: el.querySelector('#token').value.trim().toUpperCase(),
@@ -109,6 +109,9 @@ export function moreView(el) {
     Object.assign(initial, patch);
     toast('Settings saved');
   };
+
+  el.querySelector('#edit-aisles').onclick = () => openCategoryEditor('aisles');
+  el.querySelector('#edit-cats').onclick = () => openCategoryEditor('recipes');
 
   el.querySelector('#test-helper').onclick = async () => {
     const url = el.querySelector('#proxy').value.trim().replace(/\/$/, '');

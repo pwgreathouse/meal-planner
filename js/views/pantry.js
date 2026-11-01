@@ -1,7 +1,7 @@
 // Pantry screen: a plain list of what you have, grouped by aisle. Type to add; tap to edit or remove.
 import * as db from '../db.js';
 import { esc, normalizeText } from '../util.js';
-import { getPrefs, AISLES } from '../prefs.js';
+import { getPrefs, savePrefs, aisleList, aisleName, placeAisle } from '../prefs.js';
 import { guessAisle } from '../aisles.js';
 import { ingredientKey } from '../ingredients.js';
 import { openSheet, toast, attachSuggest, fillWithAmount } from '../ui.js';
@@ -18,7 +18,8 @@ export function pantryView(el) {
       <input id="add-name" placeholder="Add what you have, e.g. rice or 2 cans beans" autocomplete="off" autocorrect="off" enterkeyhint="done">
       <button class="btn primary">Add</button>
     </form>
-    <input type="search" id="q" class="field-row" placeholder="Search pantry…" value="${esc(state.q)}" autocomplete="off">
+    <div class="list-meta"><input type="search" id="q" placeholder="Search pantry…" value="${esc(state.q)}" autocomplete="off">
+      <select id="sort" aria-label="Sort"><option value="aisle">By category</option><option value="az">A–Z</option></select></div>
     <div id="body"></div>`;
 
   function draw() {
@@ -27,15 +28,18 @@ export function pantryView(el) {
     const all = pantryItems();
     const items = (q ? all.filter((p) => normalizeText(p.name).includes(q)) : all).sort((a, b) => a.name.localeCompare(b.name));
     el.querySelector('#q').hidden = all.length < 8;
-    const aisleOf = (p) => guessAisle(p.key || ingredientKey(p.name), prefs.aisleOverrides, /\bcans?\b/i.test(amountText(p)) ? 'can' : null);
-    const groups = AISLES.map((a) => [a, items.filter((p) => aisleOf(p) === a)]).filter(([, g]) => g.length);
+    el.querySelector('#sort').hidden = !all.length;
+    const az = prefs.pantrySort === 'az';
+    el.querySelector('#sort').value = az ? 'az' : 'aisle';
+    const aisleOf = (p) => placeAisle(guessAisle(p.key || ingredientKey(p.name), prefs.aisleOverrides, /\bcans?\b/i.test(amountText(p)) ? 'can' : null));
+    const groups = az ? [['', items]] : aisleList().map((a) => [a.id, items.filter((p) => aisleOf(p) === a.id)]).filter(([, g]) => g.length);
     el.querySelector('#body').innerHTML = !all.length
       ? '<p class="muted center pad">Nothing here yet. Add the things you usually have, like rice, olive oil, spices.</p>'
       : !items.length
         ? `<p class="muted center pad">Nothing matches “${esc(state.q)}”.</p>`
-        : groups.map(([a, g]) => `<section class="aisle"><h3>${esc(a)} <small>${g.length}</small></h3>
+        : groups.map(([a, g]) => `<section class="aisle">${a ? `<h3>${esc(aisleName(a))} <small>${g.length}</small></h3>` : ''}
             ${g.map((p) => `<button class="item pantry-item" data-item="${p.id}">
-              <span class="item-body"><span class="item-name">${esc(p.name)}</span>${amountText(p) ? `<span class="item-amt">${esc(amountText(p))}</span>` : ''}</span></button>`).join('')}
+              <span class="item-body"><span class="item-name">${esc(p.name)}${p.brand ? ` <span class="item-brand">${esc(p.brand)}</span>` : ''}</span>${amountText(p) ? `<span class="item-amt">${esc(amountText(p))}</span>` : ''}${p.note ? `<span class="item-note">${esc(p.note)}</span>` : ''}</span></button>`).join('')}
           </section>`).join('');
   }
 
@@ -51,6 +55,7 @@ export function pantryView(el) {
     state.q = e.target.value;
     draw();
   });
+  el.querySelector('#sort').addEventListener('change', (e) => savePrefs({ pantrySort: e.target.value }));
   el.addEventListener('click', (e) => {
     const row = e.target.closest('[data-item]');
     if (row) openItemSheet(row.dataset.item);
@@ -63,7 +68,7 @@ export function pantryView(el) {
   });
 
   draw();
-  return { refresh: (store) => store === 'pantry' && draw() };
+  return { refresh: (store) => (store === 'pantry' || store === 'settings') && draw() };
 }
 
 function openItemSheet(id) {
@@ -74,6 +79,8 @@ function openItemSheet(id) {
     <form class="form" id="f">
       <label>Item<input name="name" value="${esc(p.name)}" autocomplete="off"></label>
       <label>Amount <small class="muted">optional</small><input name="amount" value="${esc(amountText(p))}" placeholder="e.g. 2 cups, 1 1/2 lb, 1 (14.5 oz) can" autocomplete="off"></label>
+      <label>Brand <small class="muted">optional</small><input name="brand" value="${esc(p.brand || '')}" autocomplete="off"></label>
+      <label>Note <small class="muted">optional</small><input name="note" value="${esc(p.note || '')}" placeholder="e.g. in the basement freezer" autocomplete="off"></label>
       <div class="action-row">
         <button class="btn primary">Save</button>
         <button type="button" class="btn danger" id="del">Used up / tossed</button>
@@ -83,7 +90,7 @@ function openItemSheet(id) {
   f.addEventListener('submit', async (e) => {
     e.preventDefault();
     const d = new FormData(f);
-    await updatePantryItem(p, { name: d.get('name').trim() || p.name, amount: d.get('amount').trim() });
+    await updatePantryItem(p, { name: d.get('name').trim() || p.name, amount: d.get('amount').trim(), brand: d.get('brand').trim(), note: d.get('note').trim() });
     sheet.close();
   });
   sheet.el.querySelector('#del').addEventListener('click', async () => {

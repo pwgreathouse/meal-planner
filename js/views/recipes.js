@@ -5,7 +5,7 @@ import { getPrefs } from '../prefs.js';
 import { newRecipe, searchRecipes, allTags, addRecipesToList, listResultText, knownIngredientNames } from '../model.js';
 import { parseIngredient, formatIngredient, ingredientText } from '../ingredients.js';
 import { formatQty, UNITS } from '../units.js';
-import { toast, stepperHtml, wireSteppers, emptyState, openSheet } from '../ui.js';
+import { toast, stepperHtml, wireSteppers, emptyState, openSheet, makeSortable } from '../ui.js';
 import { openAddToPlan } from './plan.js';
 import { remember } from '../catalog.js';
 
@@ -279,37 +279,8 @@ export function renderRecipeForm(el, recipe, { heading, backHref, onSave, onDele
     return row;
   }
 
-  // ----- drag to reorder (pointer events, so it works with touch on iPhone too) -----
-  ingRows.addEventListener('pointerdown', (e) => {
-    const grip = e.target.closest('.drag');
-    if (!grip) return;
-    e.preventDefault();
-    const row = grip.closest('.ing-row');
-    row.classList.add('dragging');
-    document.activeElement?.blur?.();
-    const move = (ev) => {
-      ev.preventDefault();
-      const y = ev.clientY;
-      const others = [...ingRows.children].filter((r) => r !== row);
-      const before = others.find((r) => {
-        const b = r.getBoundingClientRect();
-        return y < b.top + b.height / 2;
-      });
-      if ((before || null) !== row.nextElementSibling) ingRows.insertBefore(row, before || null);
-      // Scroll when dragging near the top or bottom of the screen.
-      if (y < 90) window.scrollBy(0, -10);
-      else if (y > window.innerHeight - 110) window.scrollBy(0, 10);
-    };
-    const end = () => {
-      row.classList.remove('dragging');
-      document.removeEventListener('pointermove', move);
-      document.removeEventListener('pointerup', end);
-      document.removeEventListener('pointercancel', end);
-    };
-    document.addEventListener('pointermove', move, { passive: false });
-    document.addEventListener('pointerup', end);
-    document.addEventListener('pointercancel', end);
-  });
+  // ----- drag to reorder -----
+  makeSortable(ingRows, '.ing-row');
   (recipe.ingredients?.length ? recipe.ingredients : [{}, {}, {}]).forEach((i) => addIngRow(i));
 
   el.querySelector('#add-ing').onclick = () => addIngRow({}, true);
