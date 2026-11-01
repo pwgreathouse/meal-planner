@@ -311,6 +311,7 @@ function openEntrySheet(start, entryId) {
       <select id="mv-meal">${MEALS.map((m) => `<option value="${m.key}" ${m.key === e.meal ? 'selected' : ''}>${m.label}</option>`).join('')}</select>
     </div>
     <label class="check"><input type="checkbox" id="made" ${e.made ? 'checked' : ''}> Made it</label>
+    ${e.made && r ? '<button type="button" class="btn-text small" id="redo">Update pantry from this meal</button>' : ''}
     <div class="action-row">
       <button class="btn primary" id="save">Save</button>
       <button class="btn danger" id="rm">Remove</button>
@@ -339,21 +340,27 @@ function openEntrySheet(start, entryId) {
     const made = body.querySelector('#made').checked;
     const date = body.querySelector('#mv-day').value;
     const meal = body.querySelector('#mv-meal').value;
+    const wasMade = e.made; // read first: updateEntry changes this same entry object
     await updateEntry(start, e.id, { servings: stepperValue(body, 'servings'), made, date, meal });
     const before = lo.map((l) => `${l.date}|${l.meal}`).sort().join();
     const after = covers.map((c) => `${c}|${coverMeal}`).sort().join();
     if (before !== after) await setCovers(start, e.id, covers, coverMeal);
     sheet.close();
-    if (made && !e.made && r) {
-      r.lastMade = e.date;
+    if (made && !wasMade && r) {
+      r.lastMade = date;
       await db.put('recipes', r);
       // Take what was used out of the pantry, after a quick check.
       const servings = stepperValue(body, 'servings');
-      setTimeout(() => openDeductSheet(r, servings) || toast('Saved'), 250);
+      setTimeout(() => openDeductSheet(r, servings) || toast('Saved · nothing from this recipe is in your pantry', 3500), 250);
       return;
     }
     toast('Saved');
   };
+  body.querySelector('#redo')?.addEventListener('click', () => {
+    sheet.close();
+    const servings = stepperValue(body, 'servings');
+    setTimeout(() => openDeductSheet(r, servings) || toast('Nothing from this recipe is in your pantry', 3500), 250);
+  });
   body.querySelector('#rm').onclick = async () => {
     if (lo.length && !confirm('Remove this and its leftover days?')) return;
     await removeEntry(start, e.id);

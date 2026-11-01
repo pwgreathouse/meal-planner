@@ -135,41 +135,68 @@ export function subtractPantry(key, m) {
 }
 
 // What cooking a recipe takes out of the pantry. Nothing changes until applyDeductions().
-// Rows: { itemId, name, used, after (qty left), unit, size } or { mismatch: true, ... } when it can't be matched.
+// Rows: { kind: 'use', itemId, name, used, after (qty left), unit, size, for } when the amount can be subtracted;
+//       { kind: 'remove', itemId, name, why } for an item that was used but can't be measured
+//       (no amount saved, no amount in the recipe, or stored a different way): offered as "used it up".
+// `for` is the recipe's wording when the pantry item only matched closely ("Onion" for "yellow onion").
 export function planDeductions(recipe, servings) {
   const factor = (servings || recipe.servings || 1) / (recipe.servings || servings || 1);
-  const work = new Map(pantryItems().map((p) => [p.id, { ...p }]));
+  const work = new Map(pantryItems().map((p) => [p.id, { ...p, key: p.key || ingredientKey(p.name) }]));
   const rows = [];
+  const offered = new Set();
+  const offer = (p, why) => {
+    if (offered.has(p.id)) return;
+    offered.add(p.id);
+    rows.push({ kind: 'remove', itemId: p.id, name: p.name, why });
+  };
   for (const ing of recipe.ingredients || []) {
-    if (ing.header || !ing.name || ing.qty == null) continue; // "salt to taste" leaves the pantry alone
+    if (ing.header || !ing.name) continue;
     const key = ingredientKey(ing.name);
-    const items = [...work.values()].filter((p) => (p.key || ingredientKey(p.name)) === key && p.qty != null && p.qty > EPS);
-    if (!items.length) continue;
+    const all = [...work.values()];
+    let matches = all.filter((p) => p.key === key);
+    if (!matches.length) matches = all.filter((p) => closeMatch(p.key, key));
+    if (!matches.length) continue;
+    const forName = matches[0].key === key ? '' : ing.name;
+    const measured = matches.filter((p) => p.qty != null && p.qty > EPS);
     let matched = false;
-    for (const [dim, needed] of measures(ing.qty * factor, ing.unit, ing.size)) {
-      const usable = items.filter((p) => itemMeasures(p).some(([d]) => d === dim));
-      if (!usable.length) continue;
-      matched = true;
-      let need = needed;
-      for (const p of usable) {
-        if (need <= EPS) break;
-        const have = itemMeasures(p).find(([d]) => d === dim)[1];
-        const use = Math.min(have, need);
-        p.qty = Math.max(0, p.qty - use / (have / p.qty));
-        need -= use;
-        rows.push({ itemId: p.id, name: p.name, used: formatBase(dim, use, ing.unit), after: p.qty, unit: p.unit, size: p.size });
+    if (ing.qty != null) {
+      for (const [dim, needed] of measures(ing.qty * factor, ing.unit, ing.size)) {
+        const usable = measured.filter((p) => itemMeasures(p).some(([d]) => d === dim));
+        if (!usable.length) continue;
+        matched = true;
+        let need = needed;
+        for (const p of usable) {
+          if (need <= EPS) break;
+          const have = itemMeasures(p).find(([d]) => d === dim)[1];
+          const use = Math.min(have, need);
+          p.qty = Math.max(0, p.qty - use / (have / p.qty));
+          need -= use;
+          rows.push({ kind: 'use', itemId: p.id, name: p.name, used: formatBase(dim, use, ing.unit), after: p.qty, unit: p.unit, size: p.size, for: forName });
+        }
+        break;
       }
-      break;
     }
-    if (!matched) rows.push({ itemId: items[0].id, name: items[0].name, mismatch: true, needText: formatAmount(ing.qty * factor, ing.unit) });
+    if (matched) continue;
+    for (const p of matches) {
+      offer(p, ing.qty == null ? `recipe has no amount${forName ? ` (${ing.name})` : ''}`
+        : p.qty == null ? `used ${formatAmount(ing.qty * factor, ing.unit)}${forName ? ` ${ing.name}` : ''}; no amount saved in the pantry`
+        : `used ${formatAmount(ing.qty * factor, ing.unit)}${forName ? ` ${ing.name}` : ''}; stored as ${amountText(p)}`);
+    }
   }
-  return rows;
+  // An item already going down by an amount doesn't also need the "used it up" offer.
+  const reduced = new Set(rows.filter((r) => r.kind === 'use').map((r) => r.itemId));
+  return rows.filter((r) => r.kind === 'use' || !reduced.has(r.itemId));
 }
 
-// Applies the chosen rows. Anything that reaches zero is removed (used up).
+// Pantry "Onion" and a recipe's "yellow onion" (or the other way round): one name is the end of the other.
+function closeMatch(a, b) {
+  return a.endsWith(` ${b}`) || b.endsWith(` ${a}`);
+}
+
+// Applies the chosen rows. Anything that reaches zero, or is marked used up, is removed.
 export async function applyDeductions(rows) {
   const finalQty = new Map();
-  for (const r of rows) if (!r.mismatch) finalQty.set(r.itemId, r.after);
+  for (const r of rows) finalQty.set(r.itemId, r.kind === 'remove' ? 0 : r.after);
   let removed = 0;
   for (const [id, qty] of finalQty) {
     const p = db.get('pantry', id);

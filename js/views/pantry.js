@@ -101,24 +101,34 @@ function openItemSheet(id) {
 }
 
 // After a meal is marked made: show what comes out of the pantry, let the user untick anything, then subtract.
+// Amounts that can be worked out are ticked; items that can't be measured are offered as "used it up", unticked.
 export function openDeductSheet(recipe, servings) {
   const rows = planDeductions(recipe, servings);
   if (!rows.length) return false;
   const left = (r) => (r.after <= 0.02 ? 'used up' : `${formatPantryAmount(r.after, r.unit, r.size)} left`);
+  const row = (r) => {
+    const i = rows.indexOf(r);
+    return r.kind === 'use'
+      ? `<label class="deduct-row"><input type="checkbox" data-row="${i}" checked>
+           <span><b>${esc(r.name)}</b>${r.for ? ` <small class="muted">(${esc(r.for)})</small>` : ''}: −${esc(r.used)} → ${esc(left(r))}</span></label>`
+      : `<label class="deduct-row"><input type="checkbox" data-row="${i}">
+           <span><b>${esc(r.name)}</b>: used it up <small class="muted">· ${esc(r.why)}</small></span></label>`;
+  };
+  const use = rows.filter((r) => r.kind === 'use');
+  const maybe = rows.filter((r) => r.kind === 'remove');
   const sheet = openSheet(`
     <h2>Update pantry?</h2>
-    <p class="muted small">From making ${esc(recipe.title)} (${servings} servings). Untick anything that's not right.</p>
-    <div class="deduct">
-      ${rows.map((r, i) => r.mismatch
-        ? `<div class="deduct-row muted"><span><b>${esc(r.name)}</b>: used ${esc(r.needText)}, which doesn't match how it's stored. Adjust it in the Pantry if needed.</span></div>`
-        : `<label class="deduct-row"><input type="checkbox" data-row="${i}" checked>
-             <span><b>${esc(r.name)}</b>: −${esc(r.used)} → ${esc(left(r))}</span></label>`).join('')}
-    </div>
+    <p class="muted small">From making ${esc(recipe.title)} (${servings} servings).</p>
+    ${use.length ? `<p class="small">Taking out what the recipe used. Untick anything that's not right.</p><div class="deduct">${use.map(row).join('')}</div>` : ''}
+    ${maybe.length ? `<p class="small">Also in your pantry. Tick anything you used up and it's removed; the rest stays.</p><div class="deduct">${maybe.map(row).join('')}</div>` : ''}
     <div class="action-row"><button class="btn primary" id="apply">Update pantry</button><button class="btn" data-close>Skip</button></div>`);
   sheet.el.querySelector('#apply').addEventListener('click', async () => {
+    const ticked = (r) => sheet.el.querySelector(`[data-row="${rows.indexOf(r)}"]`).checked;
     // Rows for the same item build on each other, so an unticked row drops that item entirely.
-    const skipped = new Set(rows.filter((r, i) => !r.mismatch && !sheet.el.querySelector(`[data-row="${i}"]`).checked).map((r) => r.itemId));
-    const res = await applyDeductions(rows.filter((r) => !r.mismatch && !skipped.has(r.itemId)));
+    const skipped = new Set(use.filter((r) => !ticked(r)).map((r) => r.itemId));
+    const chosen = [...use.filter((r) => !skipped.has(r.itemId)), ...maybe.filter(ticked)];
+    if (!chosen.length) { sheet.close(); return toast('Pantry unchanged'); }
+    const res = await applyDeductions(chosen);
     sheet.close();
     toast(`Pantry updated${res.removed ? ` · ${res.removed} used up` : ''}`);
   });
