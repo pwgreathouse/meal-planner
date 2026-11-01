@@ -346,6 +346,9 @@ details.panel summary h2 { display: inline; color: var(--text); }
 .yi-list { margin-top: 6px; max-height: 60vh; overflow-y: auto; }
 .yi-row { display: grid; grid-template-columns: 1fr 96px auto; gap: 6px; align-items: center; background: var(--surface); border-bottom: 1px solid var(--line); padding: 6px 8px; }
 .yi-row:has([data-forget]) { grid-template-columns: 1fr 86px auto 30px; }
+.yi-row.editing { grid-template-columns: 1fr 86px auto 30px; }
+.yi-row.editing .yi-name { grid-column: 1 / -1; }
+.yi-row select { padding: 7px 6px; border-radius: 9px; min-width: 0; }
 .yi-row input { padding: 7px 8px; border-radius: 9px; }
 .small-btn { min-height: 34px; padding: 0 12px; font-size: .9rem; }
 .update-bar { position: fixed; left: 16px; right: 16px; bottom: calc(var(--tab-h) + var(--safe-b) + 12px); z-index: 70; border: 0; border-radius: 12px; padding: 14px; background: var(--accent); color: var(--accent-ink); font-weight: 600; font-size: 1rem; box-shadow: 0 6px 18px rgba(0,0,0,.2); cursor: pointer; }

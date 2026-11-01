@@ -4,11 +4,13 @@ import { esc, normalizeText } from '../util.js';
 import { getPrefs, savePrefs, aisleList, aisleName, placeAisle } from '../prefs.js';
 import { guessAisle } from '../aisles.js';
 import { ingredientKey } from '../ingredients.js';
-import { openSheet, toast, attachSuggest, fillWithAmount } from '../ui.js';
+import { openSheet, toast, attachSuggest, fillWithAmount, categoryOptions } from '../ui.js';
+import { setItemCategory } from '../model.js';
 import { searchCatalog, leadingAmount } from '../catalog.js';
 import { pantryItems, amountText, addTextToPantry, updatePantryItem, planDeductions, applyDeductions, formatPantryAmount, isCounted, stepCount, removePantryItems, restorePantryItems } from '../pantry.js';
 
 const state = { q: '' };
+const aisleOf = (p) => placeAisle(guessAisle(p.key || ingredientKey(p.name), getPrefs().aisleOverrides, /\bcans?\b/i.test(amountText(p)) ? 'can' : null));
 
 // "Removed Milk · Undo": puts removed items back if tapped.
 function undoable(copies, verb) {
@@ -40,7 +42,6 @@ export function pantryView(el) {
     el.querySelector('#sort').hidden = !all.length;
     const az = prefs.pantrySort === 'az';
     el.querySelector('#sort').value = az ? 'az' : 'aisle';
-    const aisleOf = (p) => placeAisle(guessAisle(p.key || ingredientKey(p.name), prefs.aisleOverrides, /\bcans?\b/i.test(amountText(p)) ? 'can' : null));
     const groups = az ? [['', items]] : aisleList().map((a) => [a.id, items.filter((p) => aisleOf(p) === a.id)]).filter(([, g]) => g.length);
     el.querySelector('#body').innerHTML = !all.length
       ? '<p class="muted center pad">Nothing here yet. Add the things you usually have, like rice, olive oil, spices.</p>'
@@ -135,6 +136,7 @@ function openItemSheet(id) {
     <form class="form" id="f">
       <div class="sug-wrap"><label>Item<input name="name" value="${esc(p.name)}" autocomplete="off" autocorrect="off"></label></div>
       <label>Amount <small class="muted">optional</small><input name="amount" value="${esc(amountText(p))}" placeholder="e.g. 2 cups, 1 1/2 lb, 1 (14.5 oz) can" autocomplete="off"></label>
+      <label>Category<select name="aisle">${categoryOptions(aisleOf(p))}</select></label>
       <label>Brand <small class="muted">optional</small><input name="brand" value="${esc(p.brand || '')}" autocomplete="off"></label>
       <label>Note <small class="muted">optional</small><input name="note" value="${esc(p.note || '')}" placeholder="e.g. in the basement freezer" autocomplete="off"></label>
       <div class="action-row">
@@ -148,6 +150,8 @@ function openItemSheet(id) {
     e.preventDefault();
     const d = new FormData(f);
     await updatePantryItem(p, { name: d.get('name').trim() || p.name, amount: d.get('amount').trim(), brand: d.get('brand').trim(), note: d.get('note').trim() });
+    // Remember the category for this item from now on (list and Your items too).
+    if (aisleOf(p) !== d.get('aisle')) await setItemCategory(p.key, d.get('aisle'));
     sheet.close();
   });
   sheet.el.querySelector('#del').addEventListener('click', async () => {

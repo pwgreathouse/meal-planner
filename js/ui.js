@@ -1,5 +1,10 @@
 // Shared UI pieces: toast, bottom sheets, steppers.
 import { esc } from './util.js';
+import { aisleList } from './prefs.js';
+
+// <option>s for a list-category picker.
+export const categoryOptions = (selected) =>
+  aisleList().map((a) => `<option value="${esc(a.id)}" ${a.id === selected ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
 
 // action: optional { label, run } shown as a button in the toast, e.g. Undo.
 export function toast(msg, ms = 2200, action = null) {

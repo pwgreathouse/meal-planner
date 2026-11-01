@@ -369,6 +369,17 @@ export async function addListItem({ name, amount = '', brand = '', note = '', ai
   await saveList(list);
 }
 
+// Files an item under a list category from now on: on the list, in the pantry and in Your items.
+export async function setItemCategory(key, aisle) {
+  if (!key || !aisle) return;
+  await savePrefs({ aisleOverrides: { ...getPrefs().aisleOverrides, [key]: aisle } });
+  const list = getList();
+  const mine = list.items.filter((i) => i.key === key && i.aisle !== aisle);
+  if (!mine.length) return;
+  for (const i of mine) i.aisle = aisle;
+  await saveList(list);
+}
+
 export async function updateListItem(id, patch) {
   const list = getList();
   const it = list.items.find((i) => i.id === id);

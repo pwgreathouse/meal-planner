@@ -1,10 +1,10 @@
 // The shopping list: one running checklist. Add anything (with amount, brand and a note); pull in a week's meals with one tap.
 import { esc, today, weekStart, addDays, fmtWeek } from '../util.js';
 import { getPrefs, savePrefs, aisleList, aisleName, placeAisle } from '../prefs.js';
-import { getList, addListItem, splitItemText, updateListItem, removeListItems, addWeekToList, weekBatches, listResultText } from '../model.js';
+import { getList, addListItem, splitItemText, updateListItem, setItemCategory, removeListItems, addWeekToList, weekBatches, listResultText } from '../model.js';
 import { ingredientKey } from '../ingredients.js';
 import { guessAisle } from '../aisles.js';
-import { openSheet, toast, attachSuggest } from '../ui.js';
+import { openSheet, toast, attachSuggest, categoryOptions } from '../ui.js';
 import { catalogEntries, searchCatalog, frequentItems, aisleOf, updateEntry, forget } from '../catalog.js';
 import { addToPantry } from '../pantry.js';
 import { openCategoryEditor } from './categories.js';
@@ -116,9 +116,7 @@ export function shopView(el) {
   return { refresh: (store) => (store === 'shopping' || store === 'settings') && draw() };
 }
 
-function aisleOptions(selected) {
-  return aisleList().map((a) => `<option value="${esc(a.id)}" ${a.id === selected ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
-}
+const aisleOptions = categoryOptions;
 const usualAisle = (name) => placeAisle(guessAisle(ingredientKey(name), getPrefs().aisleOverrides));
 
 // Add an item with its details: name, amount, category, brand, note. Picking a remembered item fills in its usual ones.
@@ -207,9 +205,10 @@ function openYourItems() {
     b.querySelector('#yi-edit').textContent = editing ? 'Done' : 'Edit';
     b.querySelector('#yi-list').innerHTML = groups.length
       ? groups.map(([a, g]) => `<section class="aisle"><h3>${esc(aisleName(a))}</h3>${g.map((x) => `
-          <div class="yi-row" data-key="${esc(x.key)}">
+          <div class="yi-row${editing ? ' editing' : ''}" data-key="${esc(x.key)}">
             ${editing
-              ? `<input class="yi-name" value="${esc(x.name)}" aria-label="Name" autocomplete="off">`
+              ? `<input class="yi-name" value="${esc(x.name)}" aria-label="Name" autocomplete="off">
+                 <select class="yi-aisle" aria-label="Category for ${esc(x.name)}">${categoryOptions(a)}</select>`
               : `<span class="yi-label">${esc(x.name)}${x.brand ? ` <small class="muted">${esc(x.brand)}</small>` : ''}${onList.has(x.key) ? ' <small class="muted">· on list</small>' : ''}</span>`}
             <input class="yi-amt" value="${esc(x.amount || '')}" placeholder="amount" aria-label="Amount" autocomplete="off">
             ${editing
@@ -219,6 +218,15 @@ function openYourItems() {
       : '<p class="muted center pad">Nothing yet. Items you add to the list or pantry, and recipe ingredients, show up here.</p>';
   };
   b.querySelector('#yi-q').addEventListener('input', (e) => { q = e.target.value; draw(); });
+  // Changing the category takes effect right away (no Save needed), everywhere the item shows up.
+  b.addEventListener('change', async (e) => {
+    const sel = e.target.closest('.yi-aisle');
+    if (!sel) return;
+    const key = sel.closest('.yi-row').dataset.key;
+    await setItemCategory(key, sel.value);
+    toast(`Moved to ${aisleName(sel.value)}`);
+    draw();
+  });
   b.addEventListener('click', async (e) => {
     if (e.target.id === 'yi-edit') { editing = !editing; return draw(); }
     const row = e.target.closest('.yi-row');
@@ -231,7 +239,11 @@ function openYourItems() {
       toast(`Added ${x.name}${amount ? ` (${amount})` : ''}`);
       draw();
     } else if (e.target.closest('[data-save]')) {
+      const aisle = row.querySelector('.yi-aisle').value;
       await updateEntry(key, { name: row.querySelector('.yi-name').value || key, amount });
+      // A renamed item keeps the category shown for it.
+      const newKey = ingredientKey(row.querySelector('.yi-name').value || key);
+      if (newKey !== key) await setItemCategory(newKey, aisle);
       toast('Saved');
       draw();
     } else if (e.target.closest('[data-forget]')) {
@@ -324,7 +336,7 @@ function openItemSheet(id) {
     const d = new FormData(f);
     const next = d.get('aisle');
     // Remember the category for this item from now on.
-    if (next !== aisle) await savePrefs({ aisleOverrides: { ...getPrefs().aisleOverrides, [item.key]: next } });
+    if (next !== aisle) await setItemCategory(item.key, next);
     await updateListItem(id, {
       name: d.get('name').trim() || item.name, amount: d.get('amount').trim(), aisle: next,
       brand: d.get('brand').trim(), note: d.get('note').trim(), ...extra,

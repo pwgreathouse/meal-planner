@@ -19,7 +19,7 @@ const WORDS = {
   'Baking & Spices': 'vanilla,flour,sugar,salt,cinnamon,cumin,paprika,oregano,nutmeg,clove,cardamom,turmeric,coriander,allspice,cayenne,seasoning,spice,extract,cocoa,chocolate,sprinkle,molasses,gelatin,shortening,powder',
   'Condiments & Sauces': 'ketchup,mustard,mayonnaise,mayo,vinegar,oil,sauce,salsa,honey,syrup,jam,jelly,dressing,relish,pickle,olive,caper,tahini,miso,sriracha,aioli,gochujang,harissa',
   'Bakery & Bread': 'bread,bun,roll,bagel,tortilla,pita,naan,croissant,baguette,brioche,ciabatta,wrap',
-  Frozen: 'ice cream',
+  Frozen: 'ice cream,uncrustable,popsicle,tater tot,frozen pizza,pizza roll,waffle,ice',
   Snacks: 'chip,chips,pretzel,popcorn,cookie',
   Beverages: 'juice,soda,coffee,tea,wine,beer,kombucha',
   Household: 'foil,parchment,plastic wrap,paper towel,napkin,dish soap,trash bag,ziploc',
@@ -33,6 +33,7 @@ const HEADS = {
   seasoning: 'Baking & Spices', extract: 'Baking & Spices', flour: 'Baking & Spices', sugar: 'Baking & Spices',
   cheese: 'Dairy & Eggs', yogurt: 'Dairy & Eggs', juice: 'Beverages', chip: 'Snacks', cracker: 'Pantry',
   bread: 'Bakery & Bread', tortilla: 'Bakery & Bread', bun: 'Bakery & Bread',
+  jam: 'Condiments & Sauces', jelly: 'Condiments & Sauces', preserves: 'Condiments & Sauces',
 };
 
 const toList = (map) =>
